@@ -35,6 +35,7 @@ IDLE_MAX_UTIL_PERCENT = 5
 IDLE_MIN_FREE_HBM_RATIO = 0.20
 IPV4_PATTERN = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$")
 DEVICE_ROW_PATTERN = re.compile(r"^\s*\|\s*(\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*(.*?)\|\s*$")
+CHIP_ROW_PATTERN = re.compile(r"^(\d+)\s+(.+)$")
 MEMORY_PAIR_PATTERN = re.compile(r"(\d+)\s*/\s*(\d+)")
 
 try:
@@ -99,7 +100,7 @@ def parse_npu_smi(output: str) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
     in_card_table = False
     for line_index, line in enumerate(lines):
-        if "NPU ID" in line and "Name" in line and "Health" in line:
+        if ("NPU ID" in line or re.search(r"\bNPU\s+Name\b", line)) and "Health" in line:
             in_card_table = True
             continue
         if "Process id" in line or "Process name" in line:
@@ -107,16 +108,21 @@ def parse_npu_smi(output: str) -> list[dict[str, Any]]:
         if not in_card_table:
             continue
         match = DEVICE_ROW_PATTERN.match(line)
-        if not match:
-            continue
-        card_id, name, health, _ = match.groups()
+        if match:
+            card_id, name, health, _ = match.groups()
+        else:
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            chip_match = CHIP_ROW_PATTERN.fullmatch(cells[0]) if len(cells) == 3 else None
+            if not chip_match or not re.search(r"[A-Za-z]", chip_match.group(2)):
+                continue
+            card_id, name, health = chip_match.group(1), chip_match.group(2), cells[1]
         util_percent = None
         hbm_used_mb = None
         hbm_total_mb = None
 
         for detail_line in lines[line_index + 1 : line_index + 4]:
             cells = [cell.strip() for cell in detail_line.strip().strip("|").split("|")]
-            if len(cells) < 4 or cells[0].isdigit():
+            if len(cells) < 3 or cells[0].isdigit():
                 continue
             payload = cells[-1]
             util_match = re.match(r"\s*(\d+)", payload)
@@ -124,6 +130,10 @@ def parse_npu_smi(output: str) -> list[dict[str, Any]]:
             if util_match and memory_pairs:
                 util_percent = int(util_match.group(1))
                 hbm_used_mb, hbm_total_mb = map(int, memory_pairs[-1])
+                if len(cells) == 3:
+                    chip_id = CHIP_ROW_PATTERN.fullmatch(cells[0])
+                    if chip_id:
+                        card_id = chip_id.group(2)
                 break
 
         hbm_free_mb = None
@@ -236,13 +246,18 @@ def scan_host(host: dict[str, str]) -> dict[str, Any]:
             banner_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
             auth_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
         )
-        _, stdout, _ = client.exec_command("npu-smi info", timeout=SSH_COMMAND_TIMEOUT_SECONDS)
+        stdin, stdout, _ = client.exec_command(
+            "sudo -S -p '' npu-smi info", timeout=SSH_COMMAND_TIMEOUT_SECONDS
+        )
+        stdin.write(host["password"] + "\n")
+        stdin.flush()
+        stdin.channel.shutdown_write()
         output = stdout.read(MAX_COMMAND_OUTPUT_BYTES + 1)
         if len(output) > MAX_COMMAND_OUTPUT_BYTES:
             raise RuntimeError("npu-smi 输出超过限制。")
         exit_code = stdout.channel.recv_exit_status()
         if exit_code != 0:
-            raise RuntimeError("远端 npu-smi 命令执行失败。")
+            raise RuntimeError("远端 sudo npu-smi 命令执行失败，请检查 sudo 权限。")
         decoded_output = output.decode("utf-8", errors="replace")
         cards = parse_npu_smi(decoded_output)
         processes = parse_npu_processes(decoded_output)
