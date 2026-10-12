@@ -139,6 +139,7 @@
           <h2 id="nodes-title">机器列表 <span class="count" id="count">0 台</span></h2>
         </div>
         <div class="head-actions">
+          <button class="btn btn-secondary" id="add-button" type="button">＋ 添加机器</button>
           <button class="btn btn-secondary" id="clear-button" type="button">清空列表</button>
           <button class="btn btn-secondary" id="save-button" type="button">保存配置</button>
           <button class="btn btn-primary" id="import-button" type="button">导入 JSON 配置</button>
@@ -157,7 +158,6 @@
       </div>
       <div id="message" role="status" aria-live="polite"></div>
       <div class="panel-foot">
-        <button class="btn btn-secondary" id="add-button" type="button">＋ 添加机器</button>
         <span class="hint">可将 JSON 配置文件拖到机器列表中添加。</span>
       </div>
     </section>
@@ -211,9 +211,19 @@
     (() => {
       const list = document.querySelector('#host-list');
       const categoryFilter = document.querySelector('#category-filter');
+      const categoryStorageKey = 'npu-detect.last-category';
+      let rememberedCategory = '';
+      try { rememberedCategory = localStorage.getItem(categoryStorageKey) || ''; } catch { /* Storage may be disabled. */ }
+      let categoriesLoading = true;
+      if (rememberedCategory) {
+        categoryFilter.add(new Option(rememberedCategory, rememberedCategory));
+        categoryFilter.value = rememberedCategory;
+      }
       let latestScan = null;
       const categoryOf = host => host.category?.trim() || '未分类';
       categoryFilter.addEventListener('change', () => {
+        rememberedCategory = categoryFilter.value;
+        try { localStorage.setItem(categoryStorageKey, rememberedCategory); } catch { /* Filtering still works without storage. */ }
         updateCount();
         if (latestScan) renderScan(latestScan);
       });
@@ -257,6 +267,7 @@
       function updateCount() {
         const selected = categoryFilter.value;
         const categories = new Set(['A3', 'A5', '未分类', ...getHostsFromForm().map(categoryOf), ...(latestScan?.results || []).map(categoryOf)]);
+        if (categoriesLoading && rememberedCategory) categories.add(rememberedCategory);
         categoryFilter.replaceChildren(new Option('全部类别', ''));
         [...categories].sort().forEach(category => categoryFilter.add(new Option(category, category)));
         categoryFilter.value = categories.has(selected) ? selected : '';
@@ -525,7 +536,6 @@
             list.replaceChildren();
             config.hosts.forEach(host => addHost(host));
             updateCount();
-            message.textContent = `已从本机配置载入 ${config.hosts.length} 台机器。`;
           }
           const lastScan = await fetch('/api/results', { cache: 'no-store' });
           if (lastScan.ok) {
@@ -534,16 +544,24 @@
           }
         } catch {
           scanMessage.textContent = '本地检测服务未连接。请先启动 npu_card_monitor.py，再通过 http://127.0.0.1:8765 打开此页面。';
+        } finally {
+          categoriesLoading = false;
+          updateCount();
+          if (latestScan) renderScan(latestScan);
         }
       }
 
-      document.querySelector('#add-button').addEventListener('click', () => { message.textContent = ''; addHost(); });
+      document.querySelector('#add-button').addEventListener('click', () => {
+        addHost();
+        message.textContent = '请填写新机器的连接信息，点击“保存配置”后写入本机文件。';
+      });
       const saveButton = document.querySelector('#save-button');
       saveButton.addEventListener('click', async () => {
         // Save all categories, including rows currently hidden by the filter.
         const hosts = getHostsFromForm().filter(host => host.ip || host.username || host.password);
-        if (hosts.length > 64 || !hosts.every(isValidHost)) {
-          message.textContent = '保存失败：最多 64 台机器，请检查所有类别中的 IP、用户名、密码和类别。';
+        const invalidIndex = hosts.findIndex(host => !isValidHost(host));
+        if (hosts.length > 64 || invalidIndex !== -1) {
+          message.textContent = hosts.length > 64 ? '保存失败：最多 64 台机器。' : `保存失败：第 ${invalidIndex + 1} 台机器的 IP、用户名、密码或类别无效，请补全后保存。`;
           return;
         }
         saveButton.disabled = true;
@@ -555,8 +573,16 @@
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || '保存失败');
+          if (data.saved !== true || data.count !== hosts.length) throw new Error('后端未确认保存成功');
+          const savedResponse = await fetch('/api/config', { cache: 'no-store' });
+          if (!savedResponse.ok) throw new Error('写入后无法验证配置，请重试');
+          const savedConfig = await savedResponse.json();
+          const expected = hosts.map(host => ({ ...host, ip: host.ip.trim(), username: host.username.trim(), category: categoryOf(host) }));
+          const matches = savedConfig.hosts?.length === expected.length && expected.every((host, index) =>
+            ['ip', 'username', 'password', 'category'].every(field => savedConfig.hosts[index][field] === host[field]));
+          if (!matches) throw new Error('文件重新读取结果与当前列表不一致，请重试');
           syncScanWithHosts();
-          message.textContent = `已保存全部类别的 ${data.count} 台机器到本机配置文件。`;
+          message.textContent = `已保存 ${data.count} 台机器（包含新增机器），已重新读取配置验证成功。`;
         } catch (error) {
           message.textContent = `${error.message}，修改尚未保存。`;
         } finally {
