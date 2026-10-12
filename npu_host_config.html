@@ -41,9 +41,11 @@
     th:last-child, td:last-child { padding-right: 22px; }
     td { padding: 11px 8px; border-top: 1px solid #edf1f6; vertical-align: middle; }
     .row-number { width: 42px; color: #8795a8; font-size: 13px; }
-    .ip-col { width: 34%; }
-    .user-col { width: 22%; }
-    .pass-col { width: 31%; }
+    #nodes-panel table { min-width: 960px; }
+    .ip-col { width: 18%; }
+    .user-col { width: 12%; }
+    .pass-col { width: 18%; }
+    .key-col { width: 30%; }
     .action-col { width: 52px; }
     input {
       display: block; width: 100%; height: 40px; padding: 0 11px;
@@ -136,7 +138,7 @@
     <section class="panel" id="nodes-panel" aria-labelledby="nodes-title">
       <div class="panel-head nodes-head">
         <div class="nodes-heading">
-          <span class="hint">修改仅在点击“保存配置”后写入本机文件，密码以明文保存。</span>
+          <span class="hint">修改仅在点击“保存配置”后写入本机文件；填写密码或 SSH 私钥绝对路径。密码以明文保存。</span>
           <h2 id="nodes-title">机器列表 <span class="count" id="count">0 台</span></h2>
         </div>
         <div class="head-actions">
@@ -151,9 +153,9 @@
       <div class="table-wrap">
         <table>
           <colgroup>
-            <col class="row-number"><col style="width:18%"><col class="ip-col"><col class="user-col"><col class="pass-col"><col class="action-col">
+            <col class="row-number"><col style="width:12%"><col class="ip-col"><col class="user-col"><col class="pass-col"><col class="key-col"><col class="action-col">
           </colgroup>
-          <thead><tr><th>#</th><th>类别</th><th>IP 地址</th><th>用户名</th><th>密码</th><th aria-label="操作"></th></tr></thead>
+          <thead><tr><th>#</th><th>类别</th><th>IP 地址</th><th>用户名</th><th>密码</th><th>SSH 私钥路径</th><th aria-label="操作"></th></tr></thead>
           <tbody id="host-list"></tbody>
         </table>
       </div>
@@ -204,6 +206,7 @@
       <td><input data-field="ip" type="text" inputmode="decimal" autocomplete="off" placeholder="例如 192.168.1.10" aria-label="IP 地址"></td>
       <td><input data-field="username" type="text" autocomplete="username" placeholder="例如 root" aria-label="用户名"></td>
       <td><div class="password-wrap"><input data-field="password" type="password" autocomplete="new-password" placeholder="请输入密码" aria-label="密码"><button class="toggle-pass" type="button" aria-label="显示密码">显示</button></div></td>
+      <td><input data-field="key_path" type="text" autocomplete="off" placeholder="私钥绝对路径（可选）" aria-label="SSH 私钥路径"></td>
       <td><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></td>
     </tr>
   </template>
@@ -262,7 +265,9 @@
         return host && typeof host.ip === 'string' && ipv4Pattern.test(host.ip.trim())
           && typeof host.username === 'string' && host.username.trim()
           && (host.category == null || (typeof host.category === 'string' && host.category.trim().length <= 40))
-          && typeof host.password === 'string' && host.password.length > 0;
+          && (host.password == null || typeof host.password === 'string')
+          && (host.key_path == null || typeof host.key_path === 'string')
+          && Boolean(host.password || host.key_path?.trim());
       }
 
       function updateCount() {
@@ -283,7 +288,7 @@
 
       function addHost(values = {}) {
         const row = template.content.firstElementChild.cloneNode(true);
-        for (const field of ['ip', 'username', 'password', 'category']) {
+        for (const field of ['ip', 'username', 'password', 'key_path', 'category']) {
           row.querySelector(`[data-field="${field}"]`).value = values[field] || '';
         }
         row.querySelector('[data-field="category"]').value = values.category || categoryFilter.value || '未分类';
@@ -557,13 +562,13 @@
         message.textContent = '请填写新机器的连接信息，点击“保存配置”后写入本机文件。';
       });
       const saveButton = document.querySelector('#save-button');
-      saveButton.addEventListener('click', async () => {
+      async function saveCurrentConfig() {
         // Save all categories, including rows currently hidden by the filter.
-        const hosts = getHostsFromForm().filter(host => host.ip || host.username || host.password);
+        const hosts = getHostsFromForm().filter(host => host.ip || host.username || host.password || host.key_path);
         const invalidIndex = hosts.findIndex(host => !isValidHost(host));
         if (hosts.length > 64 || invalidIndex !== -1) {
-          message.textContent = hosts.length > 64 ? '保存失败：最多 64 台机器。' : `保存失败：第 ${invalidIndex + 1} 台机器的 IP、用户名、密码或类别无效，请补全后保存。`;
-          return;
+          message.textContent = hosts.length > 64 ? '保存失败：最多 64 台机器。' : `保存失败：第 ${invalidIndex + 1} 台机器的 IP、用户名、密码、私钥路径或类别无效，请补全后保存。`;
+          return false;
         }
         saveButton.disabled = true;
         saveButton.textContent = '保存中…';
@@ -580,17 +585,21 @@
           const savedConfig = await savedResponse.json();
           const expected = hosts.map(host => ({ ...host, ip: host.ip.trim(), username: host.username.trim(), category: categoryOf(host) }));
           const matches = savedConfig.hosts?.length === expected.length && expected.every((host, index) =>
-            ['ip', 'username', 'password', 'category'].every(field => savedConfig.hosts[index][field] === host[field]));
+            ['ip', 'username', 'password', 'category'].every(field => savedConfig.hosts[index][field] === host[field])
+            && (savedConfig.hosts[index].key_path || '') === (host.key_path || ''));
           if (!matches) throw new Error('文件重新读取结果与当前列表不一致，请重试');
           syncScanWithHosts();
           message.textContent = `已保存 ${data.count} 台机器（包含新增机器），已重新读取配置验证成功。`;
+          return true;
         } catch (error) {
           message.textContent = `${error.message}，修改尚未保存。`;
+          return false;
         } finally {
           saveButton.disabled = false;
           saveButton.textContent = '保存配置';
         }
-      });
+      }
+      saveButton.addEventListener('click', saveCurrentConfig);
       document.querySelector('#clear-button').addEventListener('click', () => {
         list.replaceChildren(); updateCount(); message.textContent = ''; addHost();
       });
@@ -623,11 +632,11 @@
           } else {
             list.replaceChildren();
           }
-          config.hosts.forEach(host => addHost({ ip: host.ip.trim(), username: host.username.trim(), password: host.password, category: categoryOf(host) }));
+          config.hosts.forEach(host => addHost({ ip: host.ip.trim(), username: host.username.trim(), password: host.password || '', key_path: host.key_path || '', category: categoryOf(host) }));
           updateCount();
           message.textContent = `已${append ? '添加' : '导入'} ${config.hosts.length} 台机器，点击“保存配置”后写入本机文件。`;
         } catch {
-          message.textContent = '无法导入：JSON 需包含 hosts 数组，且每台机器都需包含有效 IP、用户名和密码。';
+          message.textContent = '无法导入：JSON 需包含 hosts 数组，且每台机器都需包含有效 IP、用户名，以及密码或私钥路径。';
         }
       }
 
@@ -667,11 +676,51 @@
         dragDepth = 0;
         nodesPanel.classList.remove('drag-over');
       });
+      async function enrollAfterScan(hosts, results) {
+        const pending = new Map();
+        for (const result of results) {
+          const host = hosts.find(item => item.ip === result.ip);
+          if (host && !result.error && result.host_fingerprint && !host.key_path && host.password) {
+            pending.set(result.ip, { host, fingerprint: result.host_fingerprint });
+          }
+        }
+        if (!pending.size) return;
+        const summary = [...pending].map(([ip, item]) => `${ip}  ${item.fingerprint}`).join('\n');
+        if (!window.confirm(`以下 ${pending.size} 台检测成功的机器还没有私钥。确认这些 SSH 主机指纹并安装公钥吗？\n\n${summary}\n\n若无法核对主机身份，请取消，检测结果仍会保留。`)) {
+          scanMessage.textContent = '检测完成；密钥配置已取消，可核对指纹后再次检测。';
+          return;
+        }
+        let completed = 0;
+        let failed = 0;
+        const entries = [...pending.values()];
+        for (let offset = 0; offset < entries.length; offset += 4) {
+          await Promise.all(entries.slice(offset, offset + 4).map(async ({ host, fingerprint }) => {
+            try {
+              const response = await fetch('/api/enroll-key', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host, host_fingerprint: fingerprint })
+              });
+              const data = await response.json();
+              if (!response.ok || !data.key_path) throw new Error(data.error || '密钥配置失败');
+              for (const row of list.rows) {
+                if (row.querySelector('[data-field="ip"]').value.trim() === host.ip) {
+                  row.querySelector('[data-field="key_path"]').value = data.key_path;
+                }
+              }
+              completed++;
+            } catch {
+              failed++;
+            }
+          }));
+        }
+        const saved = completed ? await saveCurrentConfig() : true;
+        scanMessage.textContent = `检测完成；${completed} 台已验证私钥登录，${failed} 台密钥配置失败${saved ? '。' : '；请点击“保存配置”保存私钥路径。'}`;
+      }
       async function scanNpu() {
         if (scanButton.disabled) return;
         const hosts = getHostsFromForm().filter(host => !categoryFilter.value || categoryOf(host) === categoryFilter.value);
         if (!hosts.length || hosts.some(host => !isValidHost(host))) {
-          scanMessage.textContent = '请先填写或导入每台机器的有效 IP、用户名和密码。';
+          scanMessage.textContent = '请先填写或导入每台机器的有效 IP、用户名和密码或私钥。';
           return;
         }
         scanButton.disabled = true;
@@ -691,6 +740,7 @@
           const retained = (latestScan?.results || []).filter(host => !requested.has(`${categoryOf(host)}|${host.ip}`));
           renderScan({ ...data, results: [...retained, ...data.results] });
           updateCount();
+          await enrollAfterScan(hosts, data.results);
         } catch (error) {
           scanMessage.textContent = `${error.message}。确认本地 Python 后端仍在运行。`;
         } finally {

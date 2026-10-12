@@ -12,6 +12,7 @@ import sys
 import os
 import tempfile
 import threading
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -46,6 +47,8 @@ except ImportError as exc:  # pragma: no cover - environment setup diagnostic
         "Paramiko is required. Run: python -m pip install -r requirements.txt"
     ) from exc
 
+from npu_key_setup import KeySetupError, enroll_key, fingerprint_of
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 LOGGER = logging.getLogger("npu-card-monitor")
@@ -71,17 +74,24 @@ def validate_hosts(payload: Any, allow_empty: bool = False) -> list[dict[str, st
             raise HostConfigError("机器配置格式错误。")
         ip = host.get("ip")
         username = host.get("username")
-        password = host.get("password")
-        if not all(isinstance(value, str) for value in (ip, username, password)):
-            raise HostConfigError("每台机器都需要填写 IP、用户名和密码。")
+        password = host.get("password", "")
+        key_path = host.get("key_path", "")
+        if not all(isinstance(value, str) for value in (ip, username, password, key_path)):
+            raise HostConfigError("每台机器都需要填写 IP、用户名和密码或私钥路径。")
         ip = ip.strip()
         username = username.strip()
-        if not IPV4_PATTERN.fullmatch(ip) or not username or not password:
-            raise HostConfigError("存在无效 IP、空用户名或空密码。")
+        key_path = key_path.strip()
+        if not IPV4_PATTERN.fullmatch(ip) or not username or not (password or key_path):
+            raise HostConfigError("存在无效 IP、空用户名或缺少认证方式。")
+        if key_path and (not Path(key_path).is_absolute() or not Path(key_path).is_file()):
+            raise HostConfigError("SSH 私钥路径必须是本机已存在文件的绝对路径。")
         category = host.get("category", "未分类")
         if not isinstance(category, str) or len(category.strip()) > 40:
             raise HostConfigError("机器类别必须是长度不超过 40 的文本。")
-        clean_hosts.append({"ip": ip, "username": username, "password": password, "category": category.strip() or "未分类"})
+        clean_host = {"ip": ip, "username": username, "password": password, "category": category.strip() or "未分类"}
+        if key_path:
+            clean_host["key_path"] = key_path
+        clean_hosts.append(clean_host)
     return clean_hosts
 
 
@@ -105,6 +115,18 @@ def save_host_config(hosts: list[dict[str, str]]) -> None:
             temporary.write("\n")
             temporary.flush()
             os.fsync(temporary.fileno())
+        if os.name == "nt":
+            identity = f"{os.environ['USERDOMAIN']}\\{os.environ['USERNAME']}"
+            permissions = subprocess.run(
+                ["icacls", str(temporary_path), "/inheritance:r", "/grant:r", f"{identity}:F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if permissions.returncode != 0:
+                raise OSError("Could not restrict configuration file permissions")
+        else:
+            temporary_path.chmod(0o600)
         os.replace(temporary_path, CONFIG_FILE)
     finally:
         if temporary_path is not None:
@@ -255,18 +277,19 @@ def scan_host(host: dict[str, str]) -> dict[str, Any]:
         client.connect(
             hostname=host["ip"],
             username=host["username"],
-            password=host["password"],
+            password=host["password"] or None,
+            key_filename=host.get("key_path") or None,
             allow_agent=False,
             look_for_keys=False,
             timeout=SSH_CONNECT_TIMEOUT_SECONDS,
             banner_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
             auth_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
         )
-        stdin, stdout, _ = client.exec_command(
-            "sudo -S -p '' npu-smi info", timeout=SSH_COMMAND_TIMEOUT_SECONDS
-        )
-        stdin.write(host["password"] + "\n")
-        stdin.flush()
+        command = "sudo -S -p '' npu-smi info" if host["password"] else "sudo -n npu-smi info"
+        stdin, stdout, _ = client.exec_command(command, timeout=SSH_COMMAND_TIMEOUT_SECONDS)
+        if host["password"]:
+            stdin.write(host["password"] + "\n")
+            stdin.flush()
         stdin.channel.shutdown_write()
         output = stdout.read(MAX_COMMAND_OUTPUT_BYTES + 1)
         if len(output) > MAX_COMMAND_OUTPUT_BYTES:
@@ -285,14 +308,16 @@ def scan_host(host: dict[str, str]) -> dict[str, Any]:
         for card in cards:
             card["processes"] = processes.get(card["id"], [])
             card["process_error"] = process_error
+        host_fingerprint = fingerprint_of(client.get_transport().get_remote_server_key())
         return {
             "ip": host["ip"],
             "hostname": host["ip"],
             "cards": cards,
             "error": None,
+            "host_fingerprint": host_fingerprint,
         }
     except paramiko.AuthenticationException:
-        return {"ip": host["ip"], "cards": [], "error": "SSH 认证失败，请检查用户名和密码。"}
+        return {"ip": host["ip"], "cards": [], "error": "SSH 认证失败，请检查密码或私钥。"}
     except (paramiko.SSHException, socket.timeout, TimeoutError, OSError):
         return {"ip": host["ip"], "cards": [], "error": "SSH 连接失败或连接超时。"}
     except RuntimeError as exc:
@@ -374,7 +399,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "只允许通过本机地址访问。"}, 403)
             return
         path = urlparse(self.path).path
-        if path not in {"/api/scan", "/api/config"}:
+        if path not in {"/api/scan", "/api/config", "/api/enroll-key"}:
             self._send_json({"error": "未找到接口。"}, 404)
             return
         try:
@@ -382,9 +407,40 @@ class RequestHandler(BaseHTTPRequestHandler):
             if content_length < 1 or content_length > MAX_REQUEST_BYTES:
                 raise HostConfigError("请求内容大小无效。")
             payload = json.loads(self.rfile.read(content_length))
-            hosts = validate_hosts(payload, allow_empty=path == "/api/config")
+            if path == "/api/enroll-key":
+                hosts = validate_hosts({"hosts": [payload.get("host")]})
+                expected_fingerprint = payload.get("host_fingerprint")
+                if not isinstance(expected_fingerprint, str):
+                    raise HostConfigError("SSH 主机指纹无效。")
+            else:
+                hosts = validate_hosts(payload, allow_empty=path == "/api/config")
         except (ValueError, json.JSONDecodeError, HostConfigError):
-            self._send_json({"error": "机器配置无效，请检查 IP、用户名和密码。"}, 400)
+            self._send_json({"error": "机器配置无效，请检查 IP、用户名和认证方式。"}, 400)
+            return
+
+        if path == "/api/enroll-key":
+            host = hosts[0]
+            scan = scan_host(host)
+            if scan["error"]:
+                self._send_json({"error": "机器检测未成功，未生成密钥。"}, 409)
+                return
+            if scan["host_fingerprint"] != expected_fingerprint:
+                self._send_json({"error": "SSH 主机指纹与检测时不同，未安装公钥。"}, 409)
+                return
+            try:
+                if host.get("key_path"):
+                    self._send_json({"key_path": host["key_path"], "created": False})
+                    return
+                if not host["password"]:
+                    raise KeySetupError("首次安装公钥需要当前 SSH 密码。")
+                private_key, created = enroll_key(
+                    host["ip"], host["username"], host["password"], expected_fingerprint
+                )
+            except (KeySetupError, paramiko.SSHException, OSError) as exc:
+                LOGGER.warning("SSH key setup failed for %s: %s", host["ip"], type(exc).__name__)
+                self._send_json({"error": "密钥安装或验证失败；原有登录配置未改变。"}, 409)
+                return
+            self._send_json({"key_path": str(private_key), "created": created})
             return
 
         if path == "/api/config":
