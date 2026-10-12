@@ -393,6 +393,13 @@ class RequestHandler(BaseHTTPRequestHandler):
             except OSError:
                 self._send_json({"error": "配置保存失败，请检查配置文件目录及写入权限。"}, 500)
                 return
+            saved_hosts = {(host["ip"], host["category"]) for host in hosts}
+            with LATEST_SCAN_LOCK:
+                if LATEST_SCAN is not None:
+                    LATEST_SCAN["results"] = [
+                        result for result in LATEST_SCAN.get("results", [])
+                        if (result["ip"], result.get("category", "未分类")) in saved_hosts
+                    ]
             self._send_json({"saved": True, "count": len(hosts)})
             return
 

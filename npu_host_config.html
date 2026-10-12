@@ -279,7 +279,12 @@
           updateCount();
           if (latestScan) renderScan(latestScan);
         });
-        row.querySelector('.remove').addEventListener('click', () => { row.remove(); updateCount(); message.textContent = ''; });
+        row.querySelector('.remove').addEventListener('click', () => {
+          row.remove();
+          updateCount();
+          message.textContent = '';
+          if (latestScan) syncScanWithHosts();
+        });
         const password = row.querySelector('[data-field="password"]');
         const toggle = row.querySelector('.toggle-pass');
         toggle.addEventListener('click', () => {
@@ -297,6 +302,12 @@
         return [...list.rows].map(row => Object.fromEntries(
           [...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.dataset.field === 'password' ? input.value : input.value.trim()])
         ));
+      }
+
+      function syncScanWithHosts() {
+        if (!latestScan) return;
+        const activeHosts = new Set(getHostsFromForm().map(host => `${categoryOf(host)}|${host.ip}`));
+        renderScan({ ...latestScan, results: (latestScan.results || []).filter(host => activeHosts.has(`${categoryOf(host)}|${host.ip}`)) });
       }
 
       function appendCell(row, value, className = '') {
@@ -544,6 +555,7 @@
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || '保存失败');
+          syncScanWithHosts();
           message.textContent = `已保存全部类别的 ${data.count} 台机器到本机配置文件。`;
         } catch (error) {
           message.textContent = `${error.message}，修改尚未保存。`;
