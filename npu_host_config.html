@@ -46,7 +46,11 @@
     .user-col { width: 12%; }
     .pass-col { width: 18%; }
     .key-col { width: 30%; }
-    .action-col { width: 52px; }
+    .action-col { width: 100px; }
+    .row-actions { display: flex; align-items: center; gap: 4px; }
+    .copy-ssh { width: 34px; height: 34px; padding: 7px; border-radius: 8px; background: transparent; color: var(--blue); }
+    .copy-ssh:hover { background: #eff6ff; }
+    .copy-ssh:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
     input {
       display: block; width: 100%; height: 40px; padding: 0 11px;
       border: 1px solid #cbd5e1; border-radius: 8px; outline: none;
@@ -207,7 +211,7 @@
       <td><input data-field="username" type="text" autocomplete="username" placeholder="例如 root" aria-label="用户名"></td>
       <td><div class="password-wrap"><input data-field="password" type="password" autocomplete="new-password" placeholder="请输入密码" aria-label="密码"><button class="toggle-pass" type="button" aria-label="显示密码">显示</button></div></td>
       <td><input data-field="key_path" type="text" autocomplete="off" placeholder="keys/npu_<IP>_ed25519（可选）" aria-label="SSH 私钥路径"></td>
-      <td><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></td>
+      <td><div class="row-actions"><button class="copy-ssh" type="button" aria-label="复制 SSH 命令和密码" title="复制 SSH 命令和密码"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"/></svg></button><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></div></td>
     </tr>
   </template>
 
@@ -303,6 +307,37 @@
           if (latestScan) syncScanWithHosts();
         });
         const password = row.querySelector('[data-field="password"]');
+        row.querySelector('.copy-ssh').addEventListener('click', async () => {
+          const ip = row.querySelector('[data-field="ip"]').value.trim();
+          const username = row.querySelector('[data-field="username"]').value.trim();
+          if (!ipv4Pattern.test(ip) || !username || !password.value) {
+            message.textContent = '请填写有效 IP、用户名和密码后再复制。';
+            return;
+          }
+          const text = `ssh ${username}@${ip} ${password.value}`;
+          try {
+            if (navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(text);
+            } else {
+              const previousFocus = document.activeElement;
+              const textarea = document.createElement('textarea');
+              textarea.value = text;
+              textarea.style.position = 'fixed';
+              textarea.style.opacity = '0';
+              document.body.append(textarea);
+              try {
+                textarea.select();
+                if (!document.execCommand('copy')) throw new Error('copy failed');
+              } finally {
+                textarea.remove();
+                previousFocus?.focus();
+              }
+            }
+            message.textContent = '已复制 SSH 命令和密码。';
+          } catch {
+            message.textContent = '复制失败，请检查浏览器剪贴板权限。';
+          }
+        });
         const toggle = row.querySelector('.toggle-pass');
         toggle.addEventListener('click', () => {
           const visible = password.type === 'password';
