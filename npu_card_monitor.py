@@ -83,8 +83,8 @@ def validate_hosts(payload: Any, allow_empty: bool = False) -> list[dict[str, st
         key_path = key_path.strip()
         if not IPV4_PATTERN.fullmatch(ip) or not username or not (password or key_path):
             raise HostConfigError("存在无效 IP、空用户名或缺少认证方式。")
-        if key_path and (not Path(key_path).is_absolute() or not Path(key_path).is_file()):
-            raise HostConfigError("SSH 私钥路径必须是本机已存在文件的绝对路径。")
+        if key_path and not resolve_key_path(key_path).is_file():
+            raise HostConfigError("SSH 私钥路径必须指向本机已存在的文件；相对路径以应用目录为基准。")
         category = host.get("category", "未分类")
         if not isinstance(category, str) or len(category.strip()) > 40:
             raise HostConfigError("机器类别必须是长度不超过 40 的文本。")
@@ -93,6 +93,11 @@ def validate_hosts(payload: Any, allow_empty: bool = False) -> list[dict[str, st
             clean_host["key_path"] = key_path
         clean_hosts.append(clean_host)
     return clean_hosts
+
+
+def resolve_key_path(key_path: str) -> Path:
+    path = Path(key_path)
+    return path if path.is_absolute() else BASE_DIR / path
 
 
 def load_saved_config() -> dict[str, list[dict[str, str]]]:
@@ -278,7 +283,7 @@ def scan_host(host: dict[str, str]) -> dict[str, Any]:
             hostname=host["ip"],
             username=host["username"],
             password=host["password"] or None,
-            key_filename=host.get("key_path") or None,
+            key_filename=str(resolve_key_path(host["key_path"])) if host.get("key_path") else None,
             allow_agent=False,
             look_for_keys=False,
             timeout=SSH_CONNECT_TIMEOUT_SECONDS,
@@ -440,7 +445,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 LOGGER.warning("SSH key setup failed for %s: %s", host["ip"], type(exc).__name__)
                 self._send_json({"error": "密钥安装或验证失败；原有登录配置未改变。"}, 409)
                 return
-            self._send_json({"key_path": str(private_key), "created": created})
+            self._send_json({"key_path": str(private_key.relative_to(BASE_DIR)), "created": created})
             return
 
         if path == "/api/config":

@@ -138,7 +138,7 @@
     <section class="panel" id="nodes-panel" aria-labelledby="nodes-title">
       <div class="panel-head nodes-head">
         <div class="nodes-heading">
-          <span class="hint">修改仅在点击“保存配置”后写入本机文件；填写密码或 SSH 私钥绝对路径。密码以明文保存。</span>
+          <span class="hint">修改仅在点击“保存配置”后写入本机文件；填写密码或 SSH 私钥路径。相对路径以应用目录为基准。密码以明文保存。</span>
           <h2 id="nodes-title">机器列表 <span class="count" id="count">0 台</span></h2>
         </div>
         <div class="head-actions">
@@ -206,7 +206,7 @@
       <td><input data-field="ip" type="text" inputmode="decimal" autocomplete="off" placeholder="例如 192.168.1.10" aria-label="IP 地址"></td>
       <td><input data-field="username" type="text" autocomplete="username" placeholder="例如 root" aria-label="用户名"></td>
       <td><div class="password-wrap"><input data-field="password" type="password" autocomplete="new-password" placeholder="请输入密码" aria-label="密码"><button class="toggle-pass" type="button" aria-label="显示密码">显示</button></div></td>
-      <td><input data-field="key_path" type="text" autocomplete="off" placeholder="私钥绝对路径（可选）" aria-label="SSH 私钥路径"></td>
+      <td><input data-field="key_path" type="text" autocomplete="off" placeholder="keys/npu_<IP>_ed25519（可选）" aria-label="SSH 私钥路径"></td>
       <td><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></td>
     </tr>
   </template>

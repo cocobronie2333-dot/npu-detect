@@ -37,8 +37,7 @@ def fingerprint_of(key: paramiko.PKey) -> str:
 
 
 def key_directory() -> Path:
-    local_data = os.environ.get("LOCALAPPDATA")
-    return (Path(local_data) / "NPUDetect" / "keys") if local_data else (Path.home() / ".local" / "share" / "npu-detect" / "keys")
+    return Path(__file__).resolve().parent / "keys"
 
 
 def secure_key_directory(directory: Path) -> None:
