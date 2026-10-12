@@ -24,11 +24,13 @@ python npu_card_monitor.py
 
 浏览器打开 <http://127.0.0.1:8765/>，导入机器配置后点击检测。
 
-Windows 也可使用 `start_npu_monitor.bat`。该脚本目前使用本机固定的 Python 和 Paramiko 路径，换机器时需调整其中的 `PYTHON_EXE` 与 `PARAMIKO_DIR`；上述命令行启动方式不依赖这些路径。
+Windows 创建 `.venv` 并安装依赖后，也可使用 `start_npu_monitor.bat`。
 
 ## SSH 配置
 
 参考 `npu-hosts.example.json` 填写配置，在页面点击“导入 JSON”。也可在项目目录创建 `npu-hosts.json`，启动后由后端加载。
+
+每台机器可设置 `category` 字段，例如 `"A3"` 或 `"A5"`，也支持自定义类别；省略或留空时归入“未分类”。页面顶部的类别下拉框统一筛选机器列表与卡状态，检测和刷新仅针对当前类别，选择“全部类别”时检测所有机器。类别也可在机器列表中编辑。
 
 实际配置包含 SSH 密码，请仅保存在本机。`npu-hosts.json`、日志、环境文件和常见私钥文件已加入 `.gitignore`，示例文件仅包含占位内容。
 
@@ -45,3 +47,5 @@ Windows 也可使用 `start_npu_monitor.bat`。该脚本目前使用本机固定
 | `npu-hosts.example.json` | 不含真实凭据的配置示例 |
 
 接口：`GET /api/config` 加载本机配置，`POST /api/scan` 执行检测，`GET /api/results` 获取最近一次检测结果。
+
+可设置 `NPU_CONFIG_FILE` 环境变量为仓库外的配置文件绝对路径。附带技能：[npu-detect](skills/npu-detect/SKILL.md)，用于获取应用、生成本机配置和启动服务。

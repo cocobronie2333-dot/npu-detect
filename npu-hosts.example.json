@@ -2,6 +2,7 @@
   "hosts": [
     {
       "ip": "192.0.2.10",
+      "category": "A3",
       "username": "your-username",
       "password": "your-password"
     }

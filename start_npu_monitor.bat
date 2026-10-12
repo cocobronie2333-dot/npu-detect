@@ -3,27 +3,19 @@ setlocal
 chcp 65001 >nul
 
 set "SCRIPT_DIR=%~dp0"
-set "PYTHON_EXE=C:\Users\sessy\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-set "PARAMIKO_DIR=D:\workspace\ssh\temp\python_packages"
+set "PYTHON_EXE=%SCRIPT_DIR%.venv\Scripts\python.exe"
 set "PAGE_URL=http://127.0.0.1:8765/"
-
 if not exist "%PYTHON_EXE%" (
-    echo Python runtime not found:
-    echo   %PYTHON_EXE%
-    echo Edit PYTHON_EXE in this script to point to your Python executable.
+    echo Run: python -m venv .venv
     pause
     exit /b 1
 )
-
-if not exist "%PARAMIKO_DIR%\paramiko" (
-    echo Paramiko package not found:
-    echo   %PARAMIKO_DIR%\paramiko
-    echo Edit PARAMIKO_DIR in this script if Paramiko is installed elsewhere.
+"%PYTHON_EXE%" -c "import paramiko" >nul 2>&1
+if errorlevel 1 (
+    echo Run: .venv\Scripts\python.exe -m pip install -r requirements.txt
     pause
     exit /b 1
 )
-
-set "PYTHONPATH=%PARAMIKO_DIR%;%PYTHONPATH%"
 
 rem Reuse an existing local service if the page is already responding.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 '%PAGE_URL%'; if ($r.StatusCode -eq 200) { exit 0 } } catch {}; exit 1" >nul 2>&1

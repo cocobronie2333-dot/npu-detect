@@ -9,6 +9,7 @@ import re
 import socket
 import argparse
 import sys
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -20,8 +21,7 @@ from urllib.parse import urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_FILE = BASE_DIR / "npu_host_config.html"
-CONFIG_FILE = BASE_DIR / "npu-hosts.json"
-SSH_PYTHON_PACKAGES = Path(r"D:\workspace\ssh\temp\python_packages")
+CONFIG_FILE = Path(os.environ.get("NPU_CONFIG_FILE", str(BASE_DIR / "npu-hosts.json")))
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -37,15 +37,11 @@ IPV4_PATTERN = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0
 DEVICE_ROW_PATTERN = re.compile(r"^\s*\|\s*(\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*(.*?)\|\s*$")
 MEMORY_PAIR_PATTERN = re.compile(r"(\d+)\s*/\s*(\d+)")
 
-if SSH_PYTHON_PACKAGES.is_dir() and str(SSH_PYTHON_PACKAGES) not in sys.path:
-    sys.path.insert(0, str(SSH_PYTHON_PACKAGES))
-
 try:
     import paramiko
 except ImportError as exc:  # pragma: no cover - environment setup diagnostic
     raise SystemExit(
-        "Paramiko is required. Install it in this Python environment or place it in "
-        f"{SSH_PYTHON_PACKAGES}."
+        "Paramiko is required. Run: python -m pip install -r requirements.txt"
     ) from exc
 
 
@@ -80,7 +76,10 @@ def validate_hosts(payload: Any) -> list[dict[str, str]]:
         username = username.strip()
         if not IPV4_PATTERN.fullmatch(ip) or not username or not password:
             raise HostConfigError("存在无效 IP、空用户名或空密码。")
-        clean_hosts.append({"ip": ip, "username": username, "password": password})
+        category = host.get("category", "未分类")
+        if not isinstance(category, str) or len(category.strip()) > 40:
+            raise HostConfigError("机器类别必须是长度不超过 40 的文本。")
+        clean_hosts.append({"ip": ip, "username": username, "password": password, "category": category.strip() or "未分类"})
     return clean_hosts
 
 
@@ -159,6 +158,70 @@ def parse_npu_smi(output: str) -> list[dict[str, Any]]:
     return cards
 
 
+def parse_npu_processes(output: str) -> dict[int, list[dict[str, Any]]]:
+    processes: dict[int, list[dict[str, Any]]] = {}
+    in_process_table = False
+    for line in output.splitlines():
+        if "Process id" in line and "Process name" in line:
+            in_process_table = True
+            continue
+        if not in_process_table:
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 4 or not cells[0].isdigit() or not cells[1].isdigit():
+            continue
+        processes.setdefault(int(cells[0]), []).append({
+            "pid": int(cells[1]), "name": cells[2],
+            "memory_mb": int(cells[3]) if cells[3].isdigit() else None,
+            "container_pid": cells[4] if len(cells) > 4 and cells[4] != "NA" else None,
+        })
+    return processes
+
+
+def collect_process_details(client: Any, processes: dict[int, list[dict[str, Any]]]) -> None:
+    pids = sorted({process["pid"] for group in processes.values() for process in group})
+    if not pids:
+        return
+    if len(pids) > 256:
+        raise RuntimeError("占用进程数量超过查询限制。")
+    # Only integer PIDs from npu-smi are interpolated into the shell command.
+    command = "for p in " + " ".join(map(str, pids)) + "; do printf '\\nNPU_PID %s\\n' \"$p\"; ps -ww -p \"$p\" -o user=,etime=,args=; printf 'NPU_CGROUP\\n'; cat /proc/\"$p\"/cgroup 2>/dev/null; done"
+    _, stdout, _ = client.exec_command(command, timeout=SSH_COMMAND_TIMEOUT_SECONDS)
+    raw = stdout.read(MAX_COMMAND_OUTPUT_BYTES + 1)
+    if len(raw) > MAX_COMMAND_OUTPUT_BYTES:
+        raise RuntimeError("进程信息输出超过限制。")
+    details = {}
+    for block in raw.decode("utf-8", errors="replace").split("\nNPU_PID ")[1:]:
+        pid_line, _, rest = block.partition("\n")
+        info, _, cgroup = rest.partition("NPU_CGROUP\n")
+        fields = info.strip().split(None, 2)
+        container_match = re.search(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", cgroup)
+        details[int(pid_line)] = {
+            "user": fields[0] if len(fields) == 3 else None,
+            "elapsed": fields[1] if len(fields) == 3 else None,
+            "command": fields[2] if len(fields) == 3 else None,
+            "container_id": container_match.group(0) if container_match else None,
+            "cgroup": cgroup.strip() or None,
+        }
+    containers = {}
+    if any(detail["container_id"] for detail in details.values()):
+        try:
+            _, stdout, _ = client.exec_command("docker ps --no-trunc --format '{{.ID}}|{{.Names}}|{{.Image}}' 2>/dev/null", timeout=SSH_COMMAND_TIMEOUT_SECONDS)
+            raw_containers = stdout.read(MAX_COMMAND_OUTPUT_BYTES + 1)
+            if len(raw_containers) <= MAX_COMMAND_OUTPUT_BYTES:
+                for line in raw_containers.decode("utf-8", errors="replace").splitlines():
+                    parts = line.split("|", 2)
+                    if len(parts) == 3:
+                        containers[parts[0]] = {"container_name": parts[1], "container_image": parts[2]}
+        except Exception:
+            pass  # Container metadata is optional; preserve the process data.
+    for group in processes.values():
+        for process in group:
+            detail = details.get(process["pid"], {})
+            process.update(detail)
+            process.update(containers.get(detail.get("container_id"), {}))
+
+
 def scan_host(host: dict[str, str]) -> dict[str, Any]:
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -180,7 +243,17 @@ def scan_host(host: dict[str, str]) -> dict[str, Any]:
         exit_code = stdout.channel.recv_exit_status()
         if exit_code != 0:
             raise RuntimeError("远端 npu-smi 命令执行失败。")
-        cards = parse_npu_smi(output.decode("utf-8", errors="replace"))
+        decoded_output = output.decode("utf-8", errors="replace")
+        cards = parse_npu_smi(decoded_output)
+        processes = parse_npu_processes(decoded_output)
+        process_error = None
+        try:
+            collect_process_details(client, processes)
+        except Exception:
+            process_error = "部分进程信息查询失败，进程可能已退出或权限不足。"
+        for card in cards:
+            card["processes"] = processes.get(card["id"], [])
+            card["process_error"] = process_error
         return {
             "ip": host["ip"],
             "hostname": host["ip"],
@@ -203,6 +276,8 @@ def scan_host(host: dict[str, str]) -> dict[str, Any]:
 def perform_scan(hosts: list[dict[str, str]]) -> dict[str, Any]:
     with ThreadPoolExecutor(max_workers=min(MAX_SSH_WORKERS, len(hosts))) as executor:
         results = list(executor.map(scan_host, hosts))
+    for host, result in zip(hosts, results):
+        result["category"] = host.get("category", "未分类")
     return {
         "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "idle_util_threshold_percent": IDLE_MAX_UTIL_PERCENT,
