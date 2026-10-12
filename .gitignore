@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+npu-hosts.json
+*.pem
+*.key
+id_rsa*
+id_ed25519*

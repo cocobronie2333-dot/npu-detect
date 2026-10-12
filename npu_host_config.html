@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>NPU 节点配置</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      color: #172b4d;
+      background: #f4f7fb;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+      --blue: #2563eb;
+      --line: #dce4ef;
+      --muted: #63738a;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; }
+    main { width: min(920px, calc(100% - 32px)); margin: 48px auto; }
+    .topline { color: var(--blue); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 9px 0 8px; font-size: clamp(26px, 4vw, 34px); letter-spacing: -.03em; }
+    .intro { margin: 0; max-width: 680px; color: var(--muted); line-height: 1.65; }
+    .notice {
+      display: flex; gap: 12px; align-items: flex-start; margin: 24px 0 20px;
+      padding: 15px 17px; border: 1px solid #bfdbfe; border-radius: 12px;
+      background: #eff6ff; color: #1e3a5f; line-height: 1.55;
+    }
+    .notice strong { display: block; margin-bottom: 2px; }
+    .notice-icon { flex: none; font-size: 18px; }
+    .panel { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: white; box-shadow: 0 8px 30px #1d35570b; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 19px 22px; border-bottom: 1px solid var(--line); }
+    .panel-head h2 { margin: 0; font-size: 16px; }
+    .head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .count { margin-left: 8px; color: var(--muted); font-size: 13px; font-weight: 400; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; }
+    th { padding: 11px 14px; background: #f8fafc; color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; }
+    th:first-child, td:first-child { padding-left: 22px; }
+    th:last-child, td:last-child { padding-right: 22px; }
+    td { padding: 11px 8px; border-top: 1px solid #edf1f6; vertical-align: middle; }
+    .row-number { width: 42px; color: #8795a8; font-size: 13px; }
+    .ip-col { width: 34%; }
+    .user-col { width: 22%; }
+    .pass-col { width: 31%; }
+    .action-col { width: 52px; }
+    input {
+      display: block; width: 100%; height: 40px; padding: 0 11px;
+      border: 1px solid #cbd5e1; border-radius: 8px; outline: none;
+      background: white; color: #172b4d; font: inherit; font-size: 14px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #2563eb1a; }
+    input::placeholder { color: #9aa8ba; }
+    .password-wrap { position: relative; }
+    .password-wrap input { padding-right: 55px; }
+    .toggle-pass { position: absolute; top: 0; right: 7px; height: 40px; border: 0; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; }
+    button { border: 0; font: inherit; cursor: pointer; }
+    .remove { width: 34px; height: 34px; border-radius: 8px; background: transparent; color: #8190a4; font-size: 19px; }
+    .remove:hover { background: #fff1f2; color: #be123c; }
+    .panel-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 15px 22px; border-top: 1px solid var(--line); }
+    .scan-panel { margin-top: 20px; }
+    .scan-summary { color: var(--muted); font-size: 13px; }
+    .scan-message { padding: 15px 22px; color: var(--muted); font-size: 13px; }
+    .chart-wrap { padding: 14px 22px 18px; border-bottom: 1px solid var(--line); }
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+    .legend-key { display: inline-flex; align-items: center; gap: 6px; }
+    .legend-swatch { width: 10px; height: 10px; border-radius: 3px; }
+    .chart-scroll { overflow-x: auto; }
+    #idle-chart { display: block; width: 100%; min-width: 800px; height: auto; }
+    .host-result { padding: 16px 22px 18px; border-top: 1px solid var(--line); }
+    .host-result:first-child { border-top: 0; }
+    .host-result-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .host-result-head h3 { margin: 0; font-size: 14px; }
+    .host-result-meta { color: var(--muted); font-size: 12px; }
+    .host-error { margin: 0; color: #b91c1c; font-size: 13px; }
+    .result-table { min-width: 720px; }
+    .result-table th:first-child, .result-table td:first-child { padding-left: 12px; }
+    .result-table th:last-child, .result-table td:last-child { padding-right: 12px; }
+    .result-table td { font-size: 13px; }
+    .state-pill { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; white-space: nowrap; }
+    .state-idle { background: #dcfce7; color: #166534; }
+    .state-busy { background: #fef3c7; color: #92400e; }
+    .state-unknown { background: #e2e8f0; color: #475569; }
+    .state-error { background: #fee2e2; color: #991b1b; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .actions { display: flex; flex-wrap: wrap; gap: 9px; }
+    .btn { min-height: 38px; padding: 0 14px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+    .btn-secondary { border: 1px solid #cbd5e1; background: white; color: #334155; }
+    .btn-secondary:hover { background: #f8fafc; }
+    .btn-primary { background: var(--blue); color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn:focus-visible, .remove:focus-visible, .toggle-pass:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+    #message { min-height: 22px; padding: 8px 22px 12px; color: #b45309; font-size: 12px; }
+    @media (max-width: 620px) {
+      main { margin: 28px auto; }
+      .panel-head, .panel-foot { padding-left: 15px; padding-right: 15px; }
+      .panel-foot { align-items: flex-start; }
+      .hint { width: 100%; }
+      .actions { width: 100%; }
+      .actions .btn { flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="topline">NPU CHECK · HOST SETUP</div>
+    <h1>NPU 节点配置</h1>
+    <p class="intro">添加需要检查的机器连接信息，整理后导出为 JSON 配置，供有 SSH 能力的巡检程序使用。</p>
+
+    <section class="notice" aria-label="功能说明">
+      <span class="notice-icon" aria-hidden="true">ⓘ</span>
+      <div><strong>纯 HTML 页面不能直接连接 SSH 或运行 npu-smi。</strong>此页面只负责编辑和导出配置，不会连接网络，也不会在浏览器中保存密码。导出的 JSON 含有密码，请妥善保管。</div>
+    </section>
+
+    <section class="panel" aria-labelledby="nodes-title">
+      <div class="panel-head">
+        <h2 id="nodes-title">机器列表 <span class="count" id="count">0 台</span></h2>
+        <div class="head-actions">
+          <button class="btn btn-secondary" id="add-button" type="button">＋ 添加机器</button>
+          <button class="btn btn-primary" id="scan-button" type="button">一键检测 NPU</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <colgroup>
+            <col class="row-number"><col class="ip-col"><col class="user-col"><col class="pass-col"><col class="action-col">
+          </colgroup>
+          <thead><tr><th>#</th><th>IP 地址</th><th>用户名</th><th>密码</th><th aria-label="操作"></th></tr></thead>
+          <tbody id="host-list"></tbody>
+        </table>
+      </div>
+      <div id="message" role="status" aria-live="polite"></div>
+      <div class="panel-foot">
+        <span class="hint">密码仅保留在当前页面内存中；关闭页面后清除。</span>
+        <div class="actions">
+          <button class="btn btn-secondary" id="clear-button" type="button">清空列表</button>
+          <button class="btn btn-secondary" id="import-button" type="button">导入 JSON</button>
+          <button class="btn btn-primary" id="export-button" type="button">导出 JSON 配置</button>
+          <input id="import-file" type="file" accept=".json,application/json" hidden>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel scan-panel" aria-labelledby="scan-title">
+      <div class="panel-head">
+        <h2 id="scan-title">卡状态</h2>
+        <span class="scan-summary" id="scan-summary">尚未检测</span>
+      </div>
+      <div class="scan-message" id="scan-message" role="status" aria-live="polite">点击“一键检测 NPU”读取各机器的卡状态。</div>
+      <div class="chart-wrap" id="chart-wrap" hidden>
+        <div class="chart-legend" aria-label="图例">
+          <span class="legend-key"><span class="legend-swatch" style="background:#22c55e"></span>估算空闲</span>
+          <span class="legend-key"><span class="legend-swatch" style="background:#f59e0b"></span>占用中</span>
+          <span class="legend-key"><span class="legend-swatch" style="background:#94a3b8"></span>数据未知</span>
+        </div>
+        <div class="chart-scroll"><svg id="idle-chart" role="img" aria-label="各机器每张 NPU 卡的 HBM 空闲比例图"></svg></div>
+      </div>
+      <div id="scan-results"></div>
+      <div class="panel-foot"><span class="hint">“空闲”估算条件：NPU 利用率 ≤ 5%，且 HBM 空闲容量 ≥ 20%。原始利用率和显存数据会逐卡显示。</span></div>
+    </section>
+  </main>
+
+  <template id="host-row">
+    <tr>
+      <td class="row-number"></td>
+      <td><input data-field="ip" type="text" inputmode="decimal" autocomplete="off" placeholder="例如 192.168.1.10" aria-label="IP 地址"></td>
+      <td><input data-field="username" type="text" autocomplete="username" placeholder="例如 root" aria-label="用户名"></td>
+      <td><div class="password-wrap"><input data-field="password" type="password" autocomplete="new-password" placeholder="请输入密码" aria-label="密码"><button class="toggle-pass" type="button" aria-label="显示密码">显示</button></div></td>
+      <td><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></td>
+    </tr>
+  </template>
+
+  <script>
+    (() => {
+      const list = document.querySelector('#host-list');
+      const count = document.querySelector('#count');
+      const message = document.querySelector('#message');
+      const template = document.querySelector('#host-row');
+      const scanButton = document.querySelector('#scan-button');
+      const scanMessage = document.querySelector('#scan-message');
+      const scanSummary = document.querySelector('#scan-summary');
+      const scanResults = document.querySelector('#scan-results');
+      const chartWrap = document.querySelector('#chart-wrap');
+      const idleChart = document.querySelector('#idle-chart');
+      const ipv4Pattern = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
+
+      function isValidHost(host) {
+        return host && typeof host.ip === 'string' && ipv4Pattern.test(host.ip.trim())
+          && typeof host.username === 'string' && host.username.trim()
+          && typeof host.password === 'string' && host.password.length > 0;
+      }
+
+      function updateCount() {
+        const total = list.rows.length;
+        count.textContent = `${total} 台`;
+        [...list.rows].forEach((row, index) => row.querySelector('.row-number').textContent = String(index + 1).padStart(2, '0'));
+      }
+
+      function addHost(values = {}) {
+        const row = template.content.firstElementChild.cloneNode(true);
+        for (const field of ['ip', 'username', 'password']) {
+          row.querySelector(`[data-field="${field}"]`).value = values[field] || '';
+        }
+        row.querySelector('.remove').addEventListener('click', () => { row.remove(); updateCount(); message.textContent = ''; });
+        const password = row.querySelector('[data-field="password"]');
+        const toggle = row.querySelector('.toggle-pass');
+        toggle.addEventListener('click', () => {
+          const visible = password.type === 'password';
+          password.type = visible ? 'text' : 'password';
+          toggle.textContent = visible ? '隐藏' : '显示';
+          toggle.setAttribute('aria-label', visible ? '隐藏密码' : '显示密码');
+        });
+        list.append(row);
+        updateCount();
+        if (!values.ip) row.querySelector('[data-field="ip"]').focus();
+      }
+
+      function getHostsFromForm() {
+        return [...list.rows].map(row => Object.fromEntries(
+          [...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.value.trim()])
+        ));
+      }
+
+      function appendCell(row, value, className = '') {
+        const cell = document.createElement('td');
+        if (className) cell.className = className;
+        cell.textContent = value;
+        row.append(cell);
+        return cell;
+      }
+
+      function renderCardChart(hosts) {
+        const groups = hosts.filter(host => !host.error && host.cards && host.cards.length);
+        chartWrap.hidden = groups.length === 0;
+        idleChart.replaceChildren();
+        if (!groups.length) return;
+
+        const svgNs = 'http://www.w3.org/2000/svg';
+        const chartWidth = 1040;
+        const labelWidth = 150;
+        const groupHeight = 58;
+        const topPadding = 12;
+        const cardCount = Math.max(...groups.map(host => host.cards.length));
+        const cellWidth = (chartWidth - labelWidth - 16) / cardCount;
+        const barWidth = Math.max(cellWidth - 38, 28);
+        const chartHeight = topPadding + groups.length * groupHeight + 6;
+        idleChart.setAttribute('viewBox', `0 0 ${chartWidth} ${chartHeight}`);
+        idleChart.setAttribute('height', String(chartHeight));
+
+        function svgElement(tag, attrs, text) {
+          const element = document.createElementNS(svgNs, tag);
+          for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, String(value));
+          if (text !== undefined) element.textContent = text;
+          return element;
+        }
+
+        groups.forEach((host, hostIndex) => {
+          const y = topPadding + hostIndex * groupHeight;
+          idleChart.append(svgElement('text', {
+            x: 0, y: y + 33, fill: '#334155', 'font-size': 13, 'font-weight': 600
+          }, host.ip));
+          host.cards.forEach((card, cardIndex) => {
+            const x = labelWidth + cardIndex * cellWidth;
+            const freePercent = card.hbm_free_percent;
+            const stateColor = freePercent == null ? '#94a3b8' : card.is_idle ? '#22c55e' : '#f59e0b';
+            const percentLabel = freePercent == null ? '—' : `${freePercent}%`;
+            idleChart.append(svgElement('text', {
+              x, y: y + 13, fill: '#64748b', 'font-size': 11
+            }, `NPU ${card.id}`));
+            idleChart.append(svgElement('rect', {
+              x, y: y + 21, width: barWidth, height: 16, rx: 5, fill: '#e2e8f0'
+            }));
+            const bar = svgElement('rect', {
+              x, y: y + 21,
+              width: freePercent == null ? 0 : Math.max(2, barWidth * Math.min(Math.max(freePercent, 0), 100) / 100),
+              height: 16, rx: 5, fill: stateColor
+            });
+            const title = svgElement('title', {},
+              `${host.ip} · NPU ${card.id} · HBM 空闲 ${percentLabel} · 利用率 ${card.util_percent == null ? '未知' : `${card.util_percent}%`}`);
+            bar.append(title);
+            idleChart.append(bar);
+            idleChart.append(svgElement('text', {
+              x: x + barWidth + 5, y: y + 33, fill: '#475569', 'font-size': 10
+            }, percentLabel));
+          });
+        });
+      }
+
+      function renderScan(data) {
+        scanResults.replaceChildren();
+        const scanned = data.results || [];
+        renderCardChart(scanned);
+        const goodHosts = scanned.filter(result => !result.error);
+        const allCards = goodHosts.flatMap(result => result.cards || []);
+        const idleCards = allCards.filter(card => card.is_idle);
+        scanSummary.textContent = `${goodHosts.length}/${scanned.length} 台在线 · ${idleCards.length}/${allCards.length} 张卡估算空闲`;
+        scanMessage.textContent = data.finished_at ? `检测完成：${new Date(data.finished_at).toLocaleString()}` : '检测完成';
+
+        for (const host of scanned) {
+          const article = document.createElement('article');
+          article.className = 'host-result';
+          const heading = document.createElement('div');
+          heading.className = 'host-result-head';
+          const title = document.createElement('h3');
+          title.textContent = host.ip;
+          heading.append(title);
+          const meta = document.createElement('span');
+          meta.className = 'host-result-meta';
+          meta.textContent = host.error ? '检测失败' : `${host.hostname || '主机'} · ${(host.cards || []).filter(card => card.is_idle).length}/${(host.cards || []).length} 张卡估算空闲`;
+          heading.append(meta);
+          article.append(heading);
+
+          if (host.error) {
+            const error = document.createElement('p');
+            error.className = 'host-error';
+            error.textContent = host.error;
+            article.append(error);
+          } else {
+            const wrap = document.createElement('div');
+            wrap.className = 'table-wrap';
+            const table = document.createElement('table');
+            table.className = 'result-table';
+            table.innerHTML = '<thead><tr><th>NPU</th><th>型号</th><th>健康</th><th>利用率</th><th>HBM 已用 / 总量</th><th>HBM 空闲</th><th>估算状态</th></tr></thead>';
+            const body = document.createElement('tbody');
+            for (const card of host.cards || []) {
+              const row = document.createElement('tr');
+              appendCell(row, String(card.id));
+              appendCell(row, card.name || '未知');
+              appendCell(row, card.health || '未知');
+              appendCell(row, card.util_percent == null ? '—' : `${card.util_percent}%`);
+              appendCell(row, card.hbm_used_mb == null ? '—' : `${card.hbm_used_mb.toLocaleString()} / ${card.hbm_total_mb.toLocaleString()} MB`);
+              appendCell(row, card.hbm_free_mb == null ? '—' : `${card.hbm_free_mb.toLocaleString()} MB`);
+              const stateCell = document.createElement('td');
+              const pill = document.createElement('span');
+              pill.className = `state-pill ${card.is_idle ? 'state-idle' : card.hbm_free_mb == null ? 'state-unknown' : 'state-busy'}`;
+              pill.textContent = card.is_idle ? '空闲' : card.hbm_free_mb == null ? '未知' : '占用中';
+              stateCell.append(pill);
+              row.append(stateCell);
+              body.append(row);
+            }
+            table.append(body);
+            wrap.append(table);
+            article.append(wrap);
+          }
+          scanResults.append(article);
+        }
+      }
+
+      async function loadInitialData() {
+        try {
+          const response = await fetch('/api/config', { cache: 'no-store' });
+          if (!response.ok) throw new Error('local service unavailable');
+          const config = await response.json();
+          if (Array.isArray(config.hosts) && config.hosts.length) {
+            list.replaceChildren();
+            config.hosts.forEach(host => addHost(host));
+            updateCount();
+            message.textContent = `已从本机配置载入 ${config.hosts.length} 台机器。`;
+          }
+          const lastScan = await fetch('/api/results', { cache: 'no-store' });
+          if (lastScan.ok) {
+            const data = await lastScan.json();
+            if (data && data.results) renderScan(data);
+          }
+        } catch {
+          scanMessage.textContent = '本地检测服务未连接。请先启动 npu_card_monitor.py，再通过 http://127.0.0.1:8765 打开此页面。';
+        }
+      }
+
+      document.querySelector('#add-button').addEventListener('click', () => { message.textContent = ''; addHost(); });
+      document.querySelector('#clear-button').addEventListener('click', () => {
+        list.replaceChildren(); updateCount(); message.textContent = ''; addHost();
+      });
+      const importFile = document.querySelector('#import-file');
+      document.querySelector('#import-button').addEventListener('click', () => importFile.click());
+      importFile.addEventListener('change', async () => {
+        const file = importFile.files[0];
+        importFile.value = '';
+        if (!file) return;
+        if (file.size > 1024 * 1024) { message.textContent = '配置文件不能超过 1 MB。'; return; }
+        try {
+          const config = JSON.parse(await file.text());
+          if (!config || !Array.isArray(config.hosts) || config.hosts.length < 1 || config.hosts.length > 100
+              || !config.hosts.every(isValidHost)) {
+            throw new Error('格式错误');
+          }
+          const hasValues = [...list.rows].some(row => [...row.querySelectorAll('[data-field]')].some(input => input.value));
+          if (hasValues && !window.confirm('导入会替换当前机器列表，是否继续？')) return;
+          list.replaceChildren();
+          config.hosts.forEach(host => addHost({ ip: host.ip.trim(), username: host.username.trim(), password: host.password }));
+          updateCount();
+          message.textContent = `已导入 ${config.hosts.length} 台机器。密码仅保留在当前页面内存中。`;
+        } catch {
+          message.textContent = '无法导入：请选择由本页面导出的 JSON，且每台机器都需包含有效 IP、用户名和密码。';
+        }
+      });
+      scanButton.addEventListener('click', async () => {
+        const hosts = getHostsFromForm();
+        if (!hosts.length || hosts.some(host => !isValidHost(host))) {
+          scanMessage.textContent = '请先填写或导入每台机器的有效 IP、用户名和密码。';
+          return;
+        }
+        scanButton.disabled = true;
+        scanButton.textContent = '检测中…';
+        scanSummary.textContent = '正在连接机器';
+        scanMessage.textContent = '正在通过 SSH 查询 NPU 状态，请稍候。';
+        try {
+          const response = await fetch('/api/scan', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hosts })
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || '检测请求失败');
+          renderScan(data);
+        } catch (error) {
+          scanMessage.textContent = `${error.message}。确认本地 Python 后端仍在运行。`;
+        } finally {
+          scanButton.disabled = false;
+          scanButton.textContent = '一键检测 NPU';
+        }
+      });
+      document.querySelector('#export-button').addEventListener('click', () => {
+        const hosts = getHostsFromForm();
+        if (!hosts.length || hosts.some(host => !host.ip || !host.username || !host.password)) {
+          message.textContent = '请为每台机器填写 IP 地址、用户名和密码后再导出。';
+          return;
+        }
+        const invalid = hosts.find(host => !ipv4Pattern.test(host.ip));
+        if (invalid) { message.textContent = `IP 地址格式不正确：${invalid.ip}`; return; }
+        const blob = new Blob([JSON.stringify({ hosts }, null, 2) + '\n'], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = 'npu-hosts.json'; link.click();
+        URL.revokeObjectURL(url);
+        message.textContent = '配置已导出。导出文件包含密码，请妥善保管。';
+      });
+
+      addHost();
+      loadInitialData();
+    })();
+  </script>
+</body>
+</html>
