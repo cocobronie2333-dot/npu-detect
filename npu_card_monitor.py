@@ -10,6 +10,7 @@ import socket
 import argparse
 import sys
 import os
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -57,11 +58,11 @@ class HostConfigError(ValueError):
     pass
 
 
-def validate_hosts(payload: Any) -> list[dict[str, str]]:
+def validate_hosts(payload: Any, allow_empty: bool = False) -> list[dict[str, str]]:
     if not isinstance(payload, dict) or not isinstance(payload.get("hosts"), list):
         raise HostConfigError("请求必须包含 hosts 数组。")
     hosts = payload["hosts"]
-    if not hosts or len(hosts) > MAX_HOSTS:
+    if (not hosts and not allow_empty) or len(hosts) > MAX_HOSTS:
         raise HostConfigError(f"机器数量必须在 1 到 {MAX_HOSTS} 台之间。")
 
     clean_hosts = []
@@ -87,12 +88,27 @@ def validate_hosts(payload: Any) -> list[dict[str, str]]:
 def load_saved_config() -> dict[str, list[dict[str, str]]]:
     try:
         payload = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        return {"hosts": validate_hosts(payload)}
+        return {"hosts": validate_hosts(payload, allow_empty=True)}
     except FileNotFoundError:
         return {"hosts": []}
     except (json.JSONDecodeError, HostConfigError):
         LOGGER.warning("Saved host configuration is invalid; use import or enter hosts in the page.")
         return {"hosts": []}
+
+
+def save_host_config(hosts: list[dict[str, str]]) -> None:
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=CONFIG_FILE.parent, prefix=".npu-config-", suffix=".tmp", delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump({"hosts": hosts}, temporary, ensure_ascii=False, indent=2)
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, CONFIG_FILE)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def parse_npu_smi(output: str) -> list[dict[str, Any]]:
@@ -357,7 +373,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not self._origin_is_local():
             self._send_json({"error": "只允许通过本机地址访问。"}, 403)
             return
-        if urlparse(self.path).path != "/api/scan":
+        path = urlparse(self.path).path
+        if path not in {"/api/scan", "/api/config"}:
             self._send_json({"error": "未找到接口。"}, 404)
             return
         try:
@@ -365,9 +382,18 @@ class RequestHandler(BaseHTTPRequestHandler):
             if content_length < 1 or content_length > MAX_REQUEST_BYTES:
                 raise HostConfigError("请求内容大小无效。")
             payload = json.loads(self.rfile.read(content_length))
-            hosts = validate_hosts(payload)
+            hosts = validate_hosts(payload, allow_empty=path == "/api/config")
         except (ValueError, json.JSONDecodeError, HostConfigError):
             self._send_json({"error": "机器配置无效，请检查 IP、用户名和密码。"}, 400)
+            return
+
+        if path == "/api/config":
+            try:
+                save_host_config(hosts)
+            except OSError:
+                self._send_json({"error": "配置保存失败，请检查配置文件目录及写入权限。"}, 500)
+                return
+            self._send_json({"saved": True, "count": len(hosts)})
             return
 
         result = perform_scan(hosts)

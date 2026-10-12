@@ -135,11 +135,12 @@
     <section class="panel" id="nodes-panel" aria-labelledby="nodes-title">
       <div class="panel-head nodes-head">
         <div class="nodes-heading">
-          <span class="hint">密码仅保留在当前页面内存中；关闭页面后清除。</span>
+          <span class="hint">修改仅在点击“保存配置”后写入本机文件，密码以明文保存。</span>
           <h2 id="nodes-title">机器列表 <span class="count" id="count">0 台</span></h2>
         </div>
         <div class="head-actions">
           <button class="btn btn-secondary" id="clear-button" type="button">清空列表</button>
+          <button class="btn btn-secondary" id="save-button" type="button">保存配置</button>
           <button class="btn btn-primary" id="import-button" type="button">导入 JSON 配置</button>
           <button class="btn btn-primary" id="scan-button" type="button">一键检测 NPU</button>
           <input id="import-file" type="file" accept=".json,application/json" hidden>
@@ -294,7 +295,7 @@
 
       function getHostsFromForm() {
         return [...list.rows].map(row => Object.fromEntries(
-          [...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.value.trim()])
+          [...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.dataset.field === 'password' ? input.value : input.value.trim()])
         ));
       }
 
@@ -526,6 +527,31 @@
       }
 
       document.querySelector('#add-button').addEventListener('click', () => { message.textContent = ''; addHost(); });
+      const saveButton = document.querySelector('#save-button');
+      saveButton.addEventListener('click', async () => {
+        // Save all categories, including rows currently hidden by the filter.
+        const hosts = getHostsFromForm().filter(host => host.ip || host.username || host.password);
+        if (hosts.length > 64 || !hosts.every(isValidHost)) {
+          message.textContent = '保存失败：最多 64 台机器，请检查所有类别中的 IP、用户名、密码和类别。';
+          return;
+        }
+        saveButton.disabled = true;
+        saveButton.textContent = '保存中…';
+        try {
+          const response = await fetch('/api/config', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hosts })
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || '保存失败');
+          message.textContent = `已保存全部类别的 ${data.count} 台机器到本机配置文件。`;
+        } catch (error) {
+          message.textContent = `${error.message}，修改尚未保存。`;
+        } finally {
+          saveButton.disabled = false;
+          saveButton.textContent = '保存配置';
+        }
+      });
       document.querySelector('#clear-button').addEventListener('click', () => {
         list.replaceChildren(); updateCount(); message.textContent = ''; addHost();
       });
@@ -560,7 +586,7 @@
           }
           config.hosts.forEach(host => addHost({ ip: host.ip.trim(), username: host.username.trim(), password: host.password, category: categoryOf(host) }));
           updateCount();
-          message.textContent = `已${append ? '添加' : '导入'} ${config.hosts.length} 台机器。密码仅保留在当前页面内存中。`;
+          message.textContent = `已${append ? '添加' : '导入'} ${config.hosts.length} 台机器，点击“保存配置”后写入本机文件。`;
         } catch {
           message.textContent = '无法导入：JSON 需包含 hosts 数组，且每台机器都需包含有效 IP、用户名和密码。';
         }
