@@ -391,7 +391,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == "/api/config":
-            self._send_json(load_saved_config())
+            self._send_json({**load_saved_config(), "app_directory": str(BASE_DIR)})
         elif path == "/api/results":
             with LATEST_SCAN_LOCK:
                 self._send_json(LATEST_SCAN or {})

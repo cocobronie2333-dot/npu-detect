@@ -211,7 +211,7 @@
       <td><input data-field="username" type="text" autocomplete="username" placeholder="例如 root" aria-label="用户名"></td>
       <td><div class="password-wrap"><input data-field="password" type="password" autocomplete="new-password" placeholder="请输入密码" aria-label="密码"><button class="toggle-pass" type="button" aria-label="显示密码">显示</button></div></td>
       <td><input data-field="key_path" type="text" autocomplete="off" placeholder="keys/npu_<IP>_ed25519（可选）" aria-label="SSH 私钥路径"></td>
-      <td><div class="row-actions"><button class="copy-ssh" type="button" aria-label="复制 SSH 命令和密码" title="复制 SSH 命令和密码"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"/></svg></button><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></div></td>
+      <td><div class="row-actions"><button class="copy-ssh" type="button" aria-label="复制 SSH 命令、密码和私钥路径" title="复制 SSH 命令、密码和私钥路径"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"/></svg></button><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></div></td>
     </tr>
   </template>
 
@@ -219,6 +219,7 @@
     (() => {
       const list = document.querySelector('#host-list');
       const categoryFilter = document.querySelector('#category-filter');
+      let appDirectory = '';
       const categoryStorageKey = 'npu-detect.last-category';
       let rememberedCategory = '';
       try { rememberedCategory = localStorage.getItem(categoryStorageKey) || ''; } catch { /* Storage may be disabled. */ }
@@ -310,11 +311,20 @@
         row.querySelector('.copy-ssh').addEventListener('click', async () => {
           const ip = row.querySelector('[data-field="ip"]').value.trim();
           const username = row.querySelector('[data-field="username"]').value.trim();
-          if (!ipv4Pattern.test(ip) || !username || !password.value) {
-            message.textContent = '请填写有效 IP、用户名和密码后再复制。';
+          let keyPath = row.querySelector('[data-field="key_path"]').value.trim();
+          if (keyPath && !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(keyPath)) {
+            if (!appDirectory) {
+              message.textContent = '尚未获取应用目录，请刷新页面后复制。';
+              return;
+            }
+            const separator = appDirectory.includes('\\') ? '\\' : '/';
+            keyPath = appDirectory.replace(/[\\/]+$/, '') + separator + keyPath.replace(/[\\/]/g, separator);
+          }
+          if (!ipv4Pattern.test(ip) || !username || !(password.value || keyPath)) {
+            message.textContent = '请填写有效 IP、用户名以及密码或私钥路径后再复制。';
             return;
           }
-          const text = `ssh ${username}@${ip} ${password.value}`;
+          const text = `ssh ${username}@${ip}${password.value ? ` ${password.value}` : ''}\n私钥路径：${keyPath || '未配置'}`;
           try {
             if (navigator.clipboard?.writeText) {
               await navigator.clipboard.writeText(text);
@@ -333,7 +343,7 @@
                 previousFocus?.focus();
               }
             }
-            message.textContent = '已复制 SSH 命令和密码。';
+            message.textContent = '已复制 SSH 命令、密码和私钥路径。';
           } catch {
             message.textContent = '复制失败，请检查浏览器剪贴板权限。';
           }
@@ -573,6 +583,7 @@
           const response = await fetch('/api/config', { cache: 'no-store' });
           if (!response.ok) throw new Error('local service unavailable');
           const config = await response.json();
+          appDirectory = config.app_directory || '';
           if (Array.isArray(config.hosts) && config.hosts.length) {
             list.replaceChildren();
             config.hosts.forEach(host => addHost(host));
