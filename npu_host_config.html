@@ -40,14 +40,25 @@
     th:first-child, td:first-child { padding-left: 22px; }
     th:last-child, td:last-child { padding-right: 22px; }
     td { padding: 11px 8px; border-top: 1px solid #edf1f6; vertical-align: middle; }
+    .drag-col { width: 44px; }
     .row-number { width: 42px; color: #8795a8; font-size: 13px; }
-    #nodes-panel table { min-width: 960px; }
+    #nodes-panel table { min-width: 1040px; }
     .ip-col { width: 18%; }
     .user-col { width: 12%; }
     .pass-col { width: 18%; }
     .key-col { width: 30%; }
-    .action-col { width: 100px; }
+    .action-col { width: 190px; }
     .row-actions { display: flex; align-items: center; gap: 4px; }
+    #nodes-panel th:last-child, #nodes-panel td:last-child { position: sticky; right: 0; z-index: 1; background: white; box-shadow: -8px 0 10px -10px #172b4d80; }
+    #nodes-panel th:last-child { z-index: 2; background: #f8fafc; }
+    .row-action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 30px; width: 30px; height: 34px; padding: 0; border-radius: 7px; background: transparent; color: var(--blue); font-size: 16px; }
+    .row-action:hover { background: #eff6ff; }
+    .row-action:focus-visible { outline: 3px solid #93c5fd; outline-offset: 1px; }
+    .row-action:disabled { cursor: not-allowed; opacity: .35; }
+    .drag-handle { cursor: grab; }
+    .drag-handle:active { cursor: grabbing; }
+    #host-list tr.dragging { opacity: .45; }
+    #host-list tr.drag-target td { border-top: 2px solid var(--blue); }
     .copy-ssh { width: 34px; height: 34px; padding: 7px; border-radius: 8px; background: transparent; color: var(--blue); }
     .copy-ssh:hover { background: #eff6ff; }
     .copy-ssh:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
@@ -96,6 +107,7 @@
     .host-result-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
     .host-result-head h3 { margin: 0; font-size: 14px; }
     .host-result-meta { color: var(--muted); font-size: 12px; }
+    .host-result .refresh-button { flex: 0 0 32px; }
     .host-error { margin: 0; color: #b91c1c; font-size: 13px; }
     .result-table { min-width: 720px; }
     .result-table th:first-child, .result-table td:first-child { padding-left: 12px; }
@@ -146,7 +158,6 @@
           <h2 id="nodes-title">机器列表 <span class="count" id="count">0 台</span></h2>
         </div>
         <div class="head-actions">
-          <button class="btn btn-secondary" id="add-button" type="button">＋ 添加机器</button>
           <button class="btn btn-secondary" id="clear-button" type="button">清空列表</button>
           <button class="btn btn-secondary" id="save-button" type="button">保存配置</button>
           <button class="btn btn-primary" id="import-button" type="button">导入 JSON 配置</button>
@@ -157,15 +168,16 @@
       <div class="table-wrap">
         <table>
           <colgroup>
-            <col class="row-number"><col style="width:12%"><col class="ip-col"><col class="user-col"><col class="pass-col"><col class="key-col"><col class="action-col">
+            <col class="drag-col"><col class="row-number"><col style="width:12%"><col class="ip-col"><col class="user-col"><col class="pass-col"><col class="key-col"><col class="action-col">
           </colgroup>
-          <thead><tr><th>#</th><th>类别</th><th>IP 地址</th><th>用户名</th><th>密码</th><th>SSH 私钥路径</th><th aria-label="操作"></th></tr></thead>
+          <thead><tr><th aria-label="拖拽调整顺序"></th><th>#</th><th>类别</th><th>IP 地址</th><th>用户名</th><th>密码</th><th>SSH 私钥路径</th><th aria-label="操作"></th></tr></thead>
           <tbody id="host-list"></tbody>
         </table>
       </div>
       <div id="message" role="status" aria-live="polite"></div>
       <div class="panel-foot">
         <span class="hint">可将 JSON 配置文件拖到机器列表中添加。</span>
+        <button class="btn btn-secondary" id="add-button" type="button">＋ 添加机器</button>
       </div>
     </section>
 
@@ -205,13 +217,14 @@
 
   <template id="host-row">
     <tr>
+      <td><button class="row-action drag-handle" type="button" draggable="true" aria-label="拖拽调整此机器顺序" title="拖拽调整顺序">⠿</button></td>
       <td class="row-number"></td>
       <td><input data-field="category" type="text" list="category-options" maxlength="40" placeholder="未分类" aria-label="机器类别"></td>
       <td><input data-field="ip" type="text" inputmode="decimal" autocomplete="off" placeholder="例如 192.168.1.10" aria-label="IP 地址"></td>
       <td><input data-field="username" type="text" autocomplete="username" placeholder="例如 root" aria-label="用户名"></td>
       <td><div class="password-wrap"><input data-field="password" type="password" autocomplete="new-password" placeholder="请输入密码" aria-label="密码"><button class="toggle-pass" type="button" aria-label="显示密码">显示</button></div></td>
       <td><input data-field="key_path" type="text" autocomplete="off" placeholder="keys/npu_<IP>_ed25519（可选）" aria-label="SSH 私钥路径"></td>
-      <td><div class="row-actions"><button class="copy-ssh" type="button" aria-label="复制 SSH 命令、密码和私钥路径" title="复制 SSH 命令、密码和私钥路径"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"/></svg></button><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></div></td>
+      <td><div class="row-actions"><button class="row-action insert-below" type="button" aria-label="在下方新建机器" title="在下方新建">＋</button><button class="copy-ssh" type="button" aria-label="复制 SSH 命令、密码和私钥路径" title="复制 SSH 命令、密码和私钥路径"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"/></svg></button><button class="remove" type="button" aria-label="删除此机器" title="删除">×</button></div></td>
     </tr>
   </template>
 
@@ -229,6 +242,8 @@
         categoryFilter.value = rememberedCategory;
       }
       let latestScan = null;
+      let scanInProgress = false;
+      let draggedRow = null;
       const categoryOf = host => host.category?.trim() || '未分类';
       categoryFilter.addEventListener('change', () => {
         rememberedCategory = categoryFilter.value;
@@ -291,7 +306,14 @@
         count.textContent = `${visible} 台`;
       }
 
-      function addHost(values = {}) {
+      function nextIpv4(ip) {
+        if (!ipv4Pattern.test(ip)) return '';
+        const number = ip.split('.').reduce((value, part) => value * 256 + Number(part), 0);
+        if (number >= 0xffffffff) return '';
+        return [24, 16, 8, 0].map(shift => (number >>> shift) & 255).join('.');
+      }
+
+      function addHost(values = {}, afterRow = null) {
         const row = template.content.firstElementChild.cloneNode(true);
         for (const field of ['ip', 'username', 'password', 'key_path', 'category']) {
           row.querySelector(`[data-field="${field}"]`).value = values[field] || '';
@@ -306,6 +328,43 @@
           updateCount();
           message.textContent = '';
           if (latestScan) syncScanWithHosts();
+        });
+        const dragHandle = row.querySelector('.drag-handle');
+        dragHandle.addEventListener('dragstart', event => {
+          draggedRow = row;
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', 'host-row');
+          row.classList.add('dragging');
+        });
+        dragHandle.addEventListener('dragend', () => {
+          row.classList.remove('dragging');
+          [...list.rows].forEach(item => item.classList.remove('drag-target'));
+          draggedRow = null;
+          updateCount();
+        });
+        row.addEventListener('dragover', event => {
+          if (!draggedRow || draggedRow === row || row.hidden) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          [...list.rows].forEach(item => item.classList.remove('drag-target'));
+          row.classList.add('drag-target');
+          const bounds = row.getBoundingClientRect();
+          const insertAfter = event.clientY >= bounds.top + bounds.height / 2;
+          const reference = insertAfter ? row.nextElementSibling : row;
+          if (reference !== draggedRow) list.insertBefore(draggedRow, reference);
+        });
+        row.addEventListener('drop', event => event.preventDefault());
+        row.querySelector('.insert-below').addEventListener('click', () => {
+          const values = getHostFromRow(row);
+          const next = {
+            ip: nextIpv4(values.ip), username: values.username, password: values.password,
+            category: values.category, key_path: ''
+          };
+          addHost(next, row);
+          const addedRow = row.nextElementSibling;
+          updateCount();
+          addedRow.querySelector('[data-field="ip"]').focus();
+          message.textContent = '已在下方新建机器，沿用类别、用户名和密码；IP 已递增，请检查后保存。';
         });
         const password = row.querySelector('[data-field="password"]');
         row.querySelector('.copy-ssh').addEventListener('click', async () => {
@@ -355,7 +414,8 @@
           toggle.textContent = visible ? '隐藏' : '显示';
           toggle.setAttribute('aria-label', visible ? '隐藏密码' : '显示密码');
         });
-        list.append(row);
+        if (afterRow) list.insertBefore(row, afterRow.nextElementSibling);
+        else list.append(row);
         updateCount();
         if (!values.ip) row.querySelector('[data-field="ip"]').focus();
       }
@@ -364,6 +424,12 @@
         return [...list.rows].map(row => Object.fromEntries(
           [...row.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input.dataset.field === 'password' ? input.value : input.value.trim()])
         ));
+      }
+
+      function getHostFromRow(row) {
+        return Object.fromEntries([...row.querySelectorAll('[data-field]')].map(input => [
+          input.dataset.field, input.dataset.field === 'password' ? input.value : input.value.trim()
+        ]));
       }
 
       function syncScanWithHosts() {
@@ -488,6 +554,16 @@
           const title = document.createElement('h3');
           title.textContent = host.ip;
           heading.append(title);
+          const refreshHostButton = document.createElement('button');
+          refreshHostButton.className = 'refresh-button';
+          refreshHostButton.type = 'button';
+          refreshHostButton.setAttribute('aria-label', `刷新 ${host.ip} 的卡状态`);
+          refreshHostButton.title = `刷新 ${host.ip} 的卡状态`;
+          refreshHostButton.setAttribute('aria-busy', 'false');
+          refreshHostButton.disabled = scanInProgress;
+          refreshHostButton.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17"/></svg>';
+          refreshHostButton.addEventListener('click', () => refreshSingleHost(host.ip, categoryOf(host), refreshHostButton));
+          heading.append(refreshHostButton);
           const meta = document.createElement('span');
           meta.className = 'host-result-meta';
           meta.textContent = host.error ? '检测失败' : `${host.hostname || '主机'} · ${(host.cards || []).filter(card => card.is_idle).length}/${(host.cards || []).length} 张卡估算空闲`;
@@ -763,14 +839,16 @@
         scanMessage.textContent = `检测完成；${completed} 台已验证私钥登录，${failed} 台密钥配置失败${saved ? '。' : '；请点击“保存配置”保存私钥路径。'}`;
       }
       async function scanNpu() {
-        if (scanButton.disabled) return;
+        if (scanInProgress) return;
         const hosts = getHostsFromForm().filter(host => !categoryFilter.value || categoryOf(host) === categoryFilter.value);
         if (!hosts.length || hosts.some(host => !isValidHost(host))) {
           scanMessage.textContent = '请先填写或导入每台机器的有效 IP、用户名和密码或私钥。';
           return;
         }
+        scanInProgress = true;
         scanButton.disabled = true;
         refreshButton.disabled = true;
+        document.querySelectorAll('.host-result .refresh-button').forEach(button => { button.disabled = true; });
         refreshButton.setAttribute('aria-busy', 'true');
         scanButton.textContent = '检测中…';
         scanSummary.textContent = '正在连接机器';
@@ -790,10 +868,45 @@
         } catch (error) {
           scanMessage.textContent = `${error.message}。确认本地 Python 后端仍在运行。`;
         } finally {
+          scanInProgress = false;
           scanButton.disabled = false;
           refreshButton.disabled = false;
+          document.querySelectorAll('.host-result .refresh-button').forEach(button => { button.disabled = false; });
           refreshButton.setAttribute('aria-busy', 'false');
           scanButton.textContent = '一键检测 NPU';
+        }
+      }
+      async function refreshSingleHost(ip, category, button) {
+        if (scanInProgress) return;
+        const host = getHostsFromForm().find(item => item.ip === ip && categoryOf(item) === category);
+        if (!host || !isValidHost(host)) {
+          scanMessage.textContent = `请检查 ${ip} 的 IP、用户名和密码或私钥路径。`;
+          return;
+        }
+        scanInProgress = true;
+        scanButton.disabled = true;
+        refreshButton.disabled = true;
+        document.querySelectorAll('.host-result .refresh-button').forEach(item => { item.disabled = true; });
+        button.setAttribute('aria-busy', 'true');
+        scanMessage.textContent = `正在刷新 ${ip} 的 NPU 卡状态。`;
+        try {
+          const response = await fetch('/api/scan', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hosts: [host] })
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || '刷新请求失败');
+          const key = `${category}|${ip}`;
+          const retained = (latestScan?.results || []).filter(item => `${categoryOf(item)}|${item.ip}` !== key);
+          renderScan({ ...data, results: [...retained, ...(data.results || [])] });
+        } catch (error) {
+          scanMessage.textContent = `${error.message}。确认本地 Python 后端仍在运行。`;
+        } finally {
+          scanInProgress = false;
+          scanButton.disabled = false;
+          refreshButton.disabled = false;
+          document.querySelectorAll('.host-result .refresh-button').forEach(item => { item.disabled = false; });
+          button.setAttribute('aria-busy', 'false');
         }
       }
       scanButton.addEventListener('click', scanNpu);

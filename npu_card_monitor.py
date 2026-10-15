@@ -466,7 +466,12 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         result = perform_scan(hosts)
         with LATEST_SCAN_LOCK:
-            LATEST_SCAN = result
+            refreshed_hosts = {(host.get("ip"), host.get("category", "未分类")) for host in result["results"]}
+            retained_results = [
+                item for item in (LATEST_SCAN or {}).get("results", [])
+                if (item.get("ip"), item.get("category", "未分类")) not in refreshed_hosts
+            ]
+            LATEST_SCAN = {**result, "results": [*retained_results, *result["results"]]}
         self._send_json(result)
 
     def log_message(self, format_string: str, *args: Any) -> None:
