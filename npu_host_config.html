@@ -40,7 +40,6 @@
     th:first-child, td:first-child { padding-left: 22px; }
     th:last-child, td:last-child { padding-right: 22px; }
     td { padding: 11px 8px; border-top: 1px solid #edf1f6; vertical-align: middle; }
-    .drag-col { width: 44px; }
     .row-number { width: 42px; color: #8795a8; font-size: 13px; }
     #nodes-panel table { min-width: 1040px; }
     .ip-col { width: 18%; }
@@ -55,10 +54,6 @@
     .row-action:hover { background: #eff6ff; }
     .row-action:focus-visible { outline: 3px solid #93c5fd; outline-offset: 1px; }
     .row-action:disabled { cursor: not-allowed; opacity: .35; }
-    .drag-handle { cursor: grab; }
-    .drag-handle:active { cursor: grabbing; }
-    #host-list tr.dragging { opacity: .45; }
-    #host-list tr.drag-target td { border-top: 2px solid var(--blue); }
     .copy-ssh { width: 34px; height: 34px; padding: 7px; border-radius: 8px; background: transparent; color: var(--blue); }
     .copy-ssh:hover { background: #eff6ff; }
     .copy-ssh:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
@@ -90,6 +85,7 @@
     .scan-message { padding: 15px 22px; color: var(--muted); font-size: 13px; }
     .chart-wrap { padding: 14px 22px 18px; border-bottom: 1px solid var(--line); }
     .chart-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+    .legend-label { font-weight: 650; color: #334155; }
     .legend-key { display: inline-flex; align-items: center; gap: 6px; }
     .legend-swatch { width: 10px; height: 10px; border-radius: 3px; }
     .chart-scroll { overflow-x: auto; }
@@ -97,6 +93,12 @@
     .chart-host-row { cursor: pointer; outline: none; }
     .chart-row-bg { fill: transparent; }
     .chart-host-row:hover .chart-row-bg, .chart-host-row:focus-visible .chart-row-bg { fill: #eff6ff; stroke: #93c5fd; }
+    .chart-refresh-button { cursor: pointer; color: var(--blue); outline: none; }
+    .chart-refresh-button:hover rect, .chart-refresh-button:focus-visible rect { fill: #eff6ff; }
+    .chart-refresh-button:focus-visible rect { stroke: #93c5fd; stroke-width: 2; }
+    .chart-refresh-button[aria-disabled="true"] { cursor: wait; opacity: .5; }
+    .chart-refresh-button[aria-busy="true"] .refresh-icon { animation: refresh-spin 1s linear infinite; transform-box: fill-box; transform-origin: center; }
+    @media (prefers-reduced-motion: reduce) { .chart-refresh-button[aria-busy="true"] .refresh-icon { animation: none; } }
     .host-dialog { width: min(1100px, calc(100% - 32px)); max-height: 85vh; padding: 0; border: 1px solid var(--line); border-radius: 16px; color: #172b4d; box-shadow: 0 20px 80px #172b4d40; }
     .host-dialog::backdrop { background: #172b4d66; }
     .host-dialog .panel-head { position: sticky; top: 0; background: white; z-index: 1; }
@@ -107,7 +109,6 @@
     .host-result-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
     .host-result-head h3 { margin: 0; font-size: 14px; }
     .host-result-meta { color: var(--muted); font-size: 12px; }
-    .host-result .refresh-button { flex: 0 0 32px; }
     .host-error { margin: 0; color: #b91c1c; font-size: 13px; }
     .result-table { min-width: 720px; }
     .result-table th:first-child, .result-table td:first-child { padding-left: 12px; }
@@ -168,9 +169,9 @@
       <div class="table-wrap">
         <table>
           <colgroup>
-            <col class="drag-col"><col class="row-number"><col style="width:12%"><col class="ip-col"><col class="user-col"><col class="pass-col"><col class="key-col"><col class="action-col">
+            <col class="row-number"><col style="width:12%"><col class="ip-col"><col class="user-col"><col class="pass-col"><col class="key-col"><col class="action-col">
           </colgroup>
-          <thead><tr><th aria-label="拖拽调整顺序"></th><th>#</th><th>类别</th><th>IP 地址</th><th>用户名</th><th>密码</th><th>SSH 私钥路径</th><th aria-label="操作"></th></tr></thead>
+          <thead><tr><th>#</th><th>类别</th><th>IP 地址</th><th>用户名</th><th>密码</th><th>SSH 私钥路径</th><th aria-label="操作"></th></tr></thead>
           <tbody id="host-list"></tbody>
         </table>
       </div>
@@ -196,11 +197,12 @@
       <div class="scan-message" id="scan-message" role="status" aria-live="polite">点击“一键检测 NPU”读取各机器的卡状态。</div>
       <div class="chart-wrap" id="chart-wrap" hidden>
         <div class="chart-legend" aria-label="图例">
+          <span class="legend-label">上条 · HBM 空闲比例</span>
           <span class="legend-key"><span class="legend-swatch" style="background:#22c55e"></span>估算空闲</span>
           <span class="legend-key"><span class="legend-swatch" style="background:#f59e0b"></span>占用中</span>
           <span class="legend-key"><span class="legend-swatch" style="background:#94a3b8"></span>数据未知</span>
+          <span class="legend-key"><span class="legend-swatch" style="background:#2563eb"></span>下条 · 计算利用率</span>
         </div>
-        <p class="hint">每张卡上方为 HBM 空闲比例，下方蓝色进度条为计算利用率。点击机器所在行查看详情。</p>
         <div class="chart-scroll"><svg id="idle-chart" role="group" aria-label="各机器每张 NPU 卡的 HBM 空闲比例图，点击行查看详情"></svg></div>
       </div>
       <div class="panel-foot"><span class="hint">“空闲”估算条件：NPU 利用率 ≤ 5%，且 HBM 空闲容量 ≥ 20%。原始利用率和显存数据会逐卡显示。</span></div>
@@ -217,7 +219,6 @@
 
   <template id="host-row">
     <tr>
-      <td><button class="row-action drag-handle" type="button" draggable="true" aria-label="拖拽调整此机器顺序" title="拖拽调整顺序">⠿</button></td>
       <td class="row-number"></td>
       <td><input data-field="category" type="text" list="category-options" maxlength="40" placeholder="未分类" aria-label="机器类别"></td>
       <td><input data-field="ip" type="text" inputmode="decimal" autocomplete="off" placeholder="例如 192.168.1.10" aria-label="IP 地址"></td>
@@ -243,7 +244,6 @@
       }
       let latestScan = null;
       let scanInProgress = false;
-      let draggedRow = null;
       const categoryOf = host => host.category?.trim() || '未分类';
       categoryFilter.addEventListener('change', () => {
         rememberedCategory = categoryFilter.value;
@@ -329,31 +329,6 @@
           message.textContent = '';
           if (latestScan) syncScanWithHosts();
         });
-        const dragHandle = row.querySelector('.drag-handle');
-        dragHandle.addEventListener('dragstart', event => {
-          draggedRow = row;
-          event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData('text/plain', 'host-row');
-          row.classList.add('dragging');
-        });
-        dragHandle.addEventListener('dragend', () => {
-          row.classList.remove('dragging');
-          [...list.rows].forEach(item => item.classList.remove('drag-target'));
-          draggedRow = null;
-          updateCount();
-        });
-        row.addEventListener('dragover', event => {
-          if (!draggedRow || draggedRow === row || row.hidden) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-          [...list.rows].forEach(item => item.classList.remove('drag-target'));
-          row.classList.add('drag-target');
-          const bounds = row.getBoundingClientRect();
-          const insertAfter = event.clientY >= bounds.top + bounds.height / 2;
-          const reference = insertAfter ? row.nextElementSibling : row;
-          if (reference !== draggedRow) list.insertBefore(draggedRow, reference);
-        });
-        row.addEventListener('drop', event => event.preventDefault());
         row.querySelector('.insert-below').addEventListener('click', () => {
           const values = getHostFromRow(row);
           const next = {
@@ -454,7 +429,7 @@
 
         const svgNs = 'http://www.w3.org/2000/svg';
         const chartWidth = 1040;
-        const labelWidth = 150;
+        const labelWidth = 146;
         const groupHeight = 64;
         const topPadding = 12;
         const cardCount = Math.max(1, ...groups.map(host => (host.cards || []).length));
@@ -483,8 +458,29 @@
             }
           });
           idleChart.append(group);
+          const refreshHostButton = svgElement('g', {
+            class: 'chart-refresh-button', role: 'button', tabindex: 0,
+            'aria-label': `刷新 ${host.ip} 的卡状态`, 'aria-disabled': String(scanInProgress),
+            'aria-busy': 'false'
+          });
+          refreshHostButton.append(svgElement('rect', { x: 2, y: y + 15, width: 30, height: 30, rx: 8, fill: 'transparent' }));
+          const refreshIcon = svgElement('g', { class: 'refresh-icon', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+          refreshIcon.append(svgElement('path', { d: `M${27} ${y + 25}v5h-5 M${7} ${y + 37}v-5h5 M${9.1} ${y + 25}a7 7 0 0 1 11.6-1L27 ${y + 27} M${7} ${y + 35}l2.3 3A7 7 0 0 0 20.9 ${y + 35}` }));
+          refreshHostButton.append(refreshIcon);
+          refreshHostButton.addEventListener('click', event => {
+            event.stopPropagation();
+            if (!scanInProgress) refreshSingleHost(host.ip, categoryOf(host), refreshHostButton);
+          });
+          refreshHostButton.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!scanInProgress) refreshSingleHost(host.ip, categoryOf(host), refreshHostButton);
+            }
+          });
+          idleChart.append(refreshHostButton);
           group.append(svgElement('text', {
-            x: 0, y: y + 33, fill: '#334155', 'font-size': 13, 'font-weight': 600
+            x: 38, y: y + 33, fill: '#334155', 'font-size': 13, 'font-weight': 600
           }, host.ip));
           if (host.error || !(host.cards || []).length) {
             group.append(svgElement('text', {
@@ -538,7 +534,15 @@
         updateCount();
         if (hostDialog.open) hostDialog.close();
         hostDetails.clear();
-        const scanned = (data.results || []).filter(host => !categoryFilter.value || categoryOf(host) === categoryFilter.value);
+        const hostOrder = new Map();
+        getHostsFromForm().forEach((host, index) => {
+          const key = `${categoryOf(host)}|${host.ip}`;
+          if (!hostOrder.has(key)) hostOrder.set(key, index);
+        });
+        const resultOrder = host => hostOrder.get(`${categoryOf(host)}|${host.ip}`) ?? Infinity;
+        const scanned = (data.results || [])
+          .filter(host => !categoryFilter.value || categoryOf(host) === categoryFilter.value)
+          .sort((a, b) => resultOrder(a) - resultOrder(b));
         renderCardChart(scanned);
         const goodHosts = scanned.filter(result => !result.error);
         const allCards = goodHosts.flatMap(result => result.cards || []);
@@ -554,16 +558,6 @@
           const title = document.createElement('h3');
           title.textContent = host.ip;
           heading.append(title);
-          const refreshHostButton = document.createElement('button');
-          refreshHostButton.className = 'refresh-button';
-          refreshHostButton.type = 'button';
-          refreshHostButton.setAttribute('aria-label', `刷新 ${host.ip} 的卡状态`);
-          refreshHostButton.title = `刷新 ${host.ip} 的卡状态`;
-          refreshHostButton.setAttribute('aria-busy', 'false');
-          refreshHostButton.disabled = scanInProgress;
-          refreshHostButton.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17"/></svg>';
-          refreshHostButton.addEventListener('click', () => refreshSingleHost(host.ip, categoryOf(host), refreshHostButton));
-          heading.append(refreshHostButton);
           const meta = document.createElement('span');
           meta.className = 'host-result-meta';
           meta.textContent = host.error ? '检测失败' : `${host.hostname || '主机'} · ${(host.cards || []).filter(card => card.is_idle).length}/${(host.cards || []).length} 张卡估算空闲`;
@@ -848,7 +842,7 @@
         scanInProgress = true;
         scanButton.disabled = true;
         refreshButton.disabled = true;
-        document.querySelectorAll('.host-result .refresh-button').forEach(button => { button.disabled = true; });
+        document.querySelectorAll('.chart-refresh-button').forEach(button => button.setAttribute('aria-disabled', 'true'));
         refreshButton.setAttribute('aria-busy', 'true');
         scanButton.textContent = '检测中…';
         scanSummary.textContent = '正在连接机器';
@@ -860,9 +854,7 @@
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || '检测请求失败');
-          const requested = new Set(hosts.map(host => `${categoryOf(host)}|${host.ip}`));
-          const retained = (latestScan?.results || []).filter(host => !requested.has(`${categoryOf(host)}|${host.ip}`));
-          renderScan({ ...data, results: [...retained, ...data.results] });
+          renderScan({ ...data, results: mergeScanResults(data.results || []) });
           updateCount();
           await enrollAfterScan(hosts, data.results);
         } catch (error) {
@@ -871,10 +863,20 @@
           scanInProgress = false;
           scanButton.disabled = false;
           refreshButton.disabled = false;
-          document.querySelectorAll('.host-result .refresh-button').forEach(button => { button.disabled = false; });
+          document.querySelectorAll('.chart-refresh-button').forEach(button => button.setAttribute('aria-disabled', 'false'));
           refreshButton.setAttribute('aria-busy', 'false');
           scanButton.textContent = '一键检测 NPU';
         }
+      }
+      function mergeScanResults(updates) {
+        const keyOf = host => `${categoryOf(host)}|${host.ip}`;
+        const byKey = new Map(updates.map(host => [keyOf(host), host]));
+        const existing = latestScan?.results || [];
+        const existingKeys = new Set(existing.map(keyOf));
+        return [
+          ...existing.map(host => byKey.get(keyOf(host)) || host),
+          ...updates.filter(host => !existingKeys.has(keyOf(host)))
+        ];
       }
       async function refreshSingleHost(ip, category, button) {
         if (scanInProgress) return;
@@ -886,7 +888,7 @@
         scanInProgress = true;
         scanButton.disabled = true;
         refreshButton.disabled = true;
-        document.querySelectorAll('.host-result .refresh-button').forEach(item => { item.disabled = true; });
+        document.querySelectorAll('.chart-refresh-button').forEach(item => item.setAttribute('aria-disabled', 'true'));
         button.setAttribute('aria-busy', 'true');
         scanMessage.textContent = `正在刷新 ${ip} 的 NPU 卡状态。`;
         try {
@@ -896,16 +898,14 @@
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || '刷新请求失败');
-          const key = `${category}|${ip}`;
-          const retained = (latestScan?.results || []).filter(item => `${categoryOf(item)}|${item.ip}` !== key);
-          renderScan({ ...data, results: [...retained, ...(data.results || [])] });
+          renderScan({ ...data, results: mergeScanResults(data.results || []) });
         } catch (error) {
           scanMessage.textContent = `${error.message}。确认本地 Python 后端仍在运行。`;
         } finally {
           scanInProgress = false;
           scanButton.disabled = false;
           refreshButton.disabled = false;
-          document.querySelectorAll('.host-result .refresh-button').forEach(item => { item.disabled = false; });
+          document.querySelectorAll('.chart-refresh-button').forEach(item => item.setAttribute('aria-disabled', 'false'));
           button.setAttribute('aria-busy', 'false');
         }
       }
